@@ -47,8 +47,9 @@ type UserAccount struct {
 }
 
 type PostPaidBill struct {
-	ID             uint    `gorm:"primaryKey;autoIncrement"`
-	BillUUID       string  `gorm:"size:36;unique;not null"`
+	ID       uint   `gorm:"primaryKey;autoIncrement"`
+	BillUuid string `gorm:"size:36;unique;not null" json:"bill_uuid"`
+
 	OrganizationID uint    `gorm:"index;not null"`
 	Amount         float64 `gorm:"type:decimal(10,2);not null"`
 	IsPaid         bool    `gorm:"default:false"`

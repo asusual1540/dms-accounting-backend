@@ -137,5 +137,8 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	accountingGroup.Post("/operatorDebit", middleware.RequirePermissions(
 		constants.PermDMSAccountingoperatorFull,
 	), accountController.OperatorDebit)
+	accountingGroup.Post("/operatorDebitbill", middleware.RequirePermissions(
+		constants.PermDMSAccountingoperatorFull,
+	), accountController.OperatorDebitbill)
 
 }
