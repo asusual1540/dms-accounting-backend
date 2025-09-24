@@ -566,6 +566,149 @@ func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
 	})
 }
 
+// operatorDebitbill
+
+type OperatorDebitBillRequest struct {
+	LedgerIds []uint `json:"ledger_ids"`
+}
+
+// bill uuis ganreted from post paid bill table
+func BillUuidGenerator() string {
+	return fmt.Sprintf("BILL-%d", time.Now().UnixNano())
+}
+
+func (a *AccountController) OperatorDebitbill(c *fiber.Ctx) error {
+	var req OperatorDebitBillRequest
+	if err := c.BodyParser(&req); err != nil {
+		logger.Error("Error parsing request body", err)
+		return c.Status(fiber.StatusBadRequest).JSON(types.ApiResponse{
+			Message: fmt.Errorf("Error parsing request body: %v", err).Error(),
+			Status:  fiber.StatusBadRequest,
+			Data:    nil,
+		})
+	}
+	if len(req.LedgerIds) == 0 {
+		logger.Error("No ledger IDs provided", nil)
+		return c.Status(fiber.StatusBadRequest).JSON(types.ApiResponse{
+			Message: "No ledger IDs provided",
+			Status:  fiber.StatusBadRequest,
+			Data:    nil,
+		})
+	}
+
+	// Check if all ledger IDs exist and are valid for debit
+	var ledgers []accountModel.AccountLedger
+	if err := a.db.Where("id IN ?", req.LedgerIds).Find(&ledgers).Error; err != nil {
+		logger.Error("Database error while fetching ledgers", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+	if len(ledgers) != len(req.LedgerIds) {
+		logger.Error("Some ledger IDs not found", nil)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Some ledger IDs not found",
+		})
+	}
+
+	// fetch acount ledger table data by ledger ids
+
+	ledgersRecord := accountModel.AccountLedger{}
+	if err := a.db.Where("id IN ?", req.LedgerIds).Find(&ledgersRecord).Error; err != nil {
+		logger.Error("Database error while fetching ledgers", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+	// Calculate total amount from the ledgers
+	var totalAmount float64
+	for _, ledger := range ledgers {
+		if ledger.Debit != nil {
+			totalAmount += *ledger.Debit
+		}
+	}
+
+	// Here you would typically create a new bill record in your PostPaidBill table
+	// For demonstration, we'll just log the total amount and ledger IDs
+	logger.Info(fmt.Sprintf("Creating bill for ledgers: %v with total amount: %.2f", req.LedgerIds, totalAmount))
+
+	// Example: Generate a unique bill UUID
+
+	// Create a new bill record
+	/*
+		type PostPaidBill struct {
+			ID             uint    `gorm:"primaryKey;autoIncrement"`
+			BillUuid       string  `gorm:"size:36;unique;not null"`
+			OrganizationID uint    `gorm:"index;not null"`
+			Amount         float64 `gorm:"type:decimal(10,2);not null"`
+			IsPaid         bool    `gorm:"default:false"`
+
+			SenderID   uint   `gorm:"index;not null"`
+			ReceiverID uint   `gorm:"index;not null"`
+			Reference  string `gorm:"type:text"`
+
+			IsApproved bool       `gorm:"default:false"`
+			ApprovedAt *time.Time `gorm:"autoCreateTime"`
+
+			CreatedAt time.Time `gorm:"autoCreateTime"`
+			UpdatedAt time.Time `gorm:"autoUpdateTime"`
+
+			// Relationships
+			Organization organization.Organization `gorm:"foreignKey:OrganizationID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
+			Sender       user.User                 `gorm:"foreignKey:SenderID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
+			Receiver     user.User                 `gorm:"foreignKey:ReceiverID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
+		}*/
+	BillUuid := BillUuidGenerator()
+	// Here you would create a new bill record in the database with the generated UUID
+	// For example:
+	bill := accountModel.PostPaidBill{
+		BillUuid:       BillUuid,
+		OrganizationID: 1, // Set appropriate organization ID
+		Amount:         totalAmount,
+		IsPaid:         false,
+		SenderID:       ledgersRecord.SenderID,
+		ReceiverID:     ledgersRecord.RecipientID,
+		Reference:      ledgersRecord.Reference,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	if err := a.db.Create(&bill).Error; err != nil {
+		logger.Error("Database error while creating bill", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+	logger.Info(fmt.Sprintf("Created bill with UUID: %s", bill.BillUuid))
+
+	// Update ledgersRecord TABLE with BillID
+	for _, ledger := range ledgers {
+		ledger.BillID = &bill.ID
+		if err := a.db.Save(&ledger).Error; err != nil {
+			logger.Error("Database error while updating ledger with bill ID", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"status":  "error",
+				"message": "Internal server error",
+			})
+		}
+	}
+
+	// now new data create to Post paid bill table
+
+	return c.Status(200).JSON(fiber.Map{
+		"status":  "success",
+		"message": "Operator debit bill endpoint - to be implemented",
+		"data": fiber.Map{
+			"ledger_ids":   req.LedgerIds,
+			"total_amount": totalAmount,
+			"bill":         bill,
+		},
+	})
+}
+
 /*==================================================================================================================
 | End Operator Debit Part
 ===================================================================================================================*/
