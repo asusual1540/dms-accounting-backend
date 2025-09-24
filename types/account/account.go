@@ -8,5 +8,4 @@ type AccountCreateRequest struct {
 	MaxLimit       float64 `json:"max_limit"`                 // Maximum limit for the account
 	BalanceType    string  `json:"balance_type"`              // e.g., "savings", "current"
 	OrganizationID *uint   `json:"organization_id,omitempty"` // For organizational accounts
-
 }

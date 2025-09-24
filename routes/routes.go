@@ -22,6 +22,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	authController := auth.NewAuthController(ssoClient, db, asyncLogger)
 	orgController := organization.NewOrganizationController(db, asyncLogger)
 	accountController := account.NewAccountController(db, asyncLogger)
+	selfCreditController := account.NewSelfCreditController(db, asyncLogger)
 
 	// Start the async logger processing goroutine
 	go asyncLogger.ProcessLog()
@@ -127,10 +128,11 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	 |Accounting routes
 	==============================================================================*/
 
-	//accountingGroup := api.Group("/v1")
-	//accountingGroup.Post("/self-credit", middleware.RequirePermissions(
-	//	constants.PermEkdakDPMGFull,
-	//	constants.PermCorporateDPMGFull,
-	//), accountController.DPMGSelfCredit)
+	accountingGroup := api.Group("/v1")
+	accountingGroup.Post("/self-credit", middleware.RequirePermissions(
+		constants.PermEkdakDPMGFull,
+		constants.PermCorporateDPMGFull,
+		constants.PermDMSAccountingDPMGFull,
+	), selfCreditController.SelfCredit)
 
 }
