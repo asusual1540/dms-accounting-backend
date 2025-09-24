@@ -248,14 +248,20 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 		}
 		savedDocPath = filePath
 		fmt.Println("Ledger ID:", ledger.ID)
-		// Create document record
-		doc := accountModel.LedgerUpdateDocument{
-			AccountLedgerID: ledger.ID,
-			Path:            filePath,
-			CreatedAt:       ptrTime(time.Now()),
-			UpdatedAt:       ptrTime(time.Now()),
-		}
-		if err := tx.Omit("id").Create(&doc).Error; err != nil {
+		// Get the next available ID for ledger_update_documents
+		var maxID uint
+		tx.Raw("SELECT COALESCE(MAX(id), 0) FROM ledger_update_documents").Scan(&maxID)
+		nextID := maxID + 1
+
+		// Create document record with explicit ID
+		if err := tx.Exec(
+			"INSERT INTO ledger_update_documents (id, account_ledger_id, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+			nextID,
+			ledger.ID,
+			filePath,
+			time.Now(),
+			time.Now(),
+		).Error; err != nil {
 			// Remove the uploaded file if document creation fails
 			os.Remove(filePath)
 			return err
