@@ -94,7 +94,7 @@ type AccountLedger struct {
 	ApprovedAt     *time.Time
 	VerifiedAt     *time.Time
 
-	CreatedAt *time.Time
+	CreatedAt time.Time `gorm:"autoCreateTime"`
 	UpdatedAt *time.Time
 
 	Recipient      user.User                  `gorm:"foreignKey:RecipientID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
@@ -109,13 +109,13 @@ type AccountLedger struct {
 }
 
 type LedgerUpdateDocument struct {
-	ID              uint   `gorm:"primaryKey;autoIncrement"`
-	AccountLedgerID uint   `gorm:"index;not null"`
-	Path            string `gorm:"size:255;not null"`
-	CreatedAt       *time.Time
-	UpdatedAt       *time.Time
+	ID              uint       `gorm:"primaryKey;autoIncrement" json:"id"`
+	AccountLedgerID uint       `gorm:"index;not null" json:"account_ledger_id"`
+	Path            string     `gorm:"size:255;not null" json:"path"`
+	CreatedAt       *time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt       *time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 
-	AccountLedger AccountLedger `gorm:"foreignKey:AccountLedgerID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	AccountLedger AccountLedger `gorm:"foreignKey:AccountLedgerID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"account_ledger"`
 }
 type OrganizationAccount struct {
 	ID             uint      `gorm:"primaryKey;autoIncrement" json:"id"`

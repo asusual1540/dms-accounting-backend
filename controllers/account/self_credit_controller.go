@@ -208,7 +208,7 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 			ApprovedAt:     ptrTime(time.Now()),
 			VerifiedBy:     &userID,
 			VerifiedAt:     ptrTime(time.Now()),
-			CreatedAt:      ptrTime(time.Now()),
+			CreatedAt:      time.Now(),
 			UpdatedAt:      ptrTime(time.Now()),
 		}
 
@@ -217,7 +217,7 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 		}
 		newLedger = ledger
 
-		// Handle file upload only if file was provided
+		// Handle file upload only if file was provided (but don't create document record yet)
 		if file != nil {
 			// Get username for folder structure
 			username, ok := userInfo["username"].(string)
@@ -240,29 +240,11 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 			filename := fmt.Sprintf("%s_%s", timestamp, safeFilename)
 			filePath := fmt.Sprintf("%s/%s", uploadDir, filename)
 
-		// Save the file
-		if err := c.SaveFile(file, filePath); err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Failed to save uploaded file")
-		}
-		savedDocPath = filePath
-		fmt.Println("Ledger ID:", ledger.ID)
-		// Get the next available ID for ledger_update_documents
-		var maxID uint
-		tx.Raw("SELECT COALESCE(MAX(id), 0) FROM ledger_update_documents").Scan(&maxID)
-		nextID := maxID + 1
-
-		// Create document record with explicit ID
-		if err := tx.Exec(
-			"INSERT INTO ledger_update_documents (id, account_ledger_id, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-			nextID,
-			ledger.ID,
-			filePath,
-			time.Now(),
-			time.Now(),
-		).Error; err != nil {
-			// Remove the uploaded file if document creation fails
-			os.Remove(filePath)
-			return err
+			// Save the file
+			if err := c.SaveFile(file, filePath); err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Failed to save uploaded file")
+			}
+			savedDocPath = filePath
 		}
 
 		// Update account balance
@@ -302,6 +284,24 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 			"message":     "Transaction failed",
 			"data":        []interface{}{},
 		})
+	}
+
+	// Create document record after successful transaction (if file was uploaded)
+	if savedDocPath != "" && newLedger.ID != 0 {
+		fmt.Println("Creating document record for Ledger ID:", newLedger.ID)
+		doc := accountModel.LedgerUpdateDocument{
+			AccountLedgerID: newLedger.ID,
+			Path:            savedDocPath,
+		}
+
+		// Use separate transaction for document creation to avoid affecting the main ledger transaction
+		if err := database.DB.Create(&doc).Error; err != nil {
+			// Log the error but don't fail the entire operation since the ledger was already created
+			fmt.Printf("Warning: Failed to create document record: %v\n", err)
+			// Optionally, you could still remove the uploaded file if document creation fails
+			// os.Remove(savedDocPath)
+			// savedDocPath = "" // Clear the path so it's not included in response
+		}
 	}
 
 	// Log the transaction for audit

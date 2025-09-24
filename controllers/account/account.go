@@ -322,7 +322,7 @@ func (a *AccountController) Credit(c *fiber.Ctx) error {
 			IsAutoVerified: true,
 			StatusActive:   1,
 			IsDelete:       0,
-			CreatedAt:      ptrTime(time.Now()),
+			CreatedAt:      time.Now(),
 			UpdatedAt:      ptrTime(time.Now()),
 		}
 		if err := tx.Create(&ledger).Error; err != nil {
@@ -482,7 +482,7 @@ func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
 		//OrganizationID: organization.Organization{ID: targetAccount.ID},
 		StatusActive: 1,
 		IsDelete:     0,
-		CreatedAt:    ptrTime(time.Now()),
+		CreatedAt:    time.Now(),
 		UpdatedAt:    ptrTime(time.Now()),
 	}
 	if err := a.db.Create(&ledger).Error; err != nil {
@@ -595,7 +595,7 @@ func (a *AccountController) Debit(c *fiber.Ctx) error {
 			Reference:    req.Reference,
 			StatusActive: 1,
 			IsDelete:     0,
-			CreatedAt:    ptrTime(time.Now()),
+			CreatedAt:    time.Now(),
 			UpdatedAt:    ptrTime(time.Now()),
 			ApprovedBy:   nil,
 		}
@@ -1110,7 +1110,7 @@ func (a *AccountController) TransferFunds(c *fiber.Ctx) error {
 			Reference:    req.Reference,
 			StatusActive: 1,
 			IsDelete:     0,
-			CreatedAt:    ptrTime(time.Now()),
+			CreatedAt:    time.Now(),
 			UpdatedAt:    ptrTime(time.Now()),
 		}
 
@@ -1121,7 +1121,7 @@ func (a *AccountController) TransferFunds(c *fiber.Ctx) error {
 			Reference:    req.Reference,
 			StatusActive: 1,
 			IsDelete:     0,
-			CreatedAt:    ptrTime(time.Now()),
+			CreatedAt:    time.Now(),
 			UpdatedAt:    ptrTime(time.Now()),
 		}
 
@@ -1180,7 +1180,7 @@ func (a *AccountController) CreateTransaction(c *fiber.Ctx) error {
 	}
 
 	now := time.Now()
-	req.CreatedAt = &now
+	req.CreatedAt = now
 	req.UpdatedAt = &now
 	req.StatusActive = 1
 	req.IsDelete = 0
