@@ -133,10 +133,9 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	 |Accounting routes
 	==============================================================================*/
 
-	//accountingGroup := api.Group("/v1")
-	//accountingGroup.Post("/self-credit", middleware.RequirePermissions(
-	//	constants.PermEkdakDPMGFull,
-	//	constants.PermCorporateDPMGFull,
-	//), accountController.DPMGSelfCredit)
+	accountingGroup := api.Group("/v1")
+	accountingGroup.Post("/operatorDebit", middleware.RequirePermissions(
+		constants.PermDMSAccountingoperatorFull,
+	), accountController.OperatorDebit)
 
 }
