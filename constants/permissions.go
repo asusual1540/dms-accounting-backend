@@ -9,6 +9,7 @@ const (
 	PermDMSAccountingSuperAdminFull = "dms-accounting.super-admin.full-permit"
 	PermDMSAccountingDPMGFull       = "dms-accounting.dpmg.full-permit"
 	PermDMSAccountingPostmasterFull = "dms-accounting.postmaster.full-permit"
+	PermDMSAccountingoperatorFull   = "dms-accounting.operator.full-permit"
 	PermPostOfficeAdminFull         = "corporate-booking.post-office-admin.full-permit"
 	PermOrgStandardSuperAdminFull   = "corporate-booking.org-standard-super-admin.full-permit"
 	PermStandardAdminHasFull        = "corporate-booking.standard-admin.has-full-permit"

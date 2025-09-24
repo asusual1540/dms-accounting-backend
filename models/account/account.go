@@ -72,7 +72,7 @@ type PostPaidBill struct {
 type AccountLedger struct {
 	ID uint `gorm:"primaryKey;autoIncrement"`
 	// Transaction details
-	BillID uint `gorm:"index"` // Optional link to PostPaidBill
+	BillID *uint `gorm:"index"` // Optional link to PostPaidBill
 
 	RecipientID    uint  `gorm:"index;not null"`
 	SenderID       uint  `gorm:"index;not null"`
