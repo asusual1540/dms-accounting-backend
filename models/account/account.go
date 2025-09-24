@@ -109,7 +109,7 @@ type AccountLedger struct {
 }
 
 type LedgerUpdateDocument struct {
-	ID              uint   `gorm:"primaryKey"`
+	ID              uint   `gorm:"primaryKey;autoIncrement"`
 	AccountLedgerID uint   `gorm:"index;not null"`
 	Path            string `gorm:"size:255;not null"`
 	CreatedAt       *time.Time
