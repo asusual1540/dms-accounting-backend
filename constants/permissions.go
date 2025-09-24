@@ -47,6 +47,7 @@ var (
 
 	OrganizationManagerPermissions = []string{
 		PermOrgStandardSuperAdminFull,
+		PermCorporateDPMGFull,
 		PermStandardAdminHasFull,
 	}
 	OrganizationDebitPermissions = []string{

@@ -49,6 +49,12 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	auth.Get("/profile", user.GetUserInfo)
 	auth.Post("/logout", authController.LogOut)
 
+	/*=============================================================================
+	| Account Routes for Users
+	===============================================================================*/
+	accountGroup := api.Group("/account").Use(middleware.RequireAuthentication())
+	accountGroup.Get("/get-user-account", accountController.GetUserAccount)
+
 	/*============================================================================
 	 |organization routes
 	==============================================================================*/
