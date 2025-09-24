@@ -23,6 +23,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	orgController := organization.NewOrganizationController(db, asyncLogger)
 	accountController := account.NewAccountController(db, asyncLogger)
 	selfCreditController := account.NewSelfCreditController(db, asyncLogger)
+	adminBalanceController := account.NewAdminBalanceController(db, asyncLogger)
 
 	// Start the async logger processing goroutine
 	go asyncLogger.ProcessLog()
@@ -146,5 +147,8 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 		constants.PermDMSAccountingDPMGFull,
 		constants.PermDMSAccountingPostmasterFull,
 	), selfCreditController.SelfCredit)
+	accountingGroup.Post("/admin-add-balance", middleware.RequirePermissions(
+		constants.PermDMSAccountingDPMGFull,
+	), adminBalanceController.AddBalance)
 
 }
