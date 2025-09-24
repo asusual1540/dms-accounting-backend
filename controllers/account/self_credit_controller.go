@@ -7,6 +7,7 @@ import (
 	"dms-accounting/models/user"
 	"dms-accounting/types"
 	"fmt"
+	"mime/multipart"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -98,45 +99,40 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get uploaded files
+	// Get uploaded files (optional)
 	files := form.File["document"]
-	if len(files) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"status":      "failed",
-			"status_code": 400,
-			"message":     "Document upload is required",
-			"data":        []interface{}{},
-		})
-	}
+	var file *multipart.FileHeader
 
-	// Validate file
-	file := files[0]
-	if file.Size > 10*1024*1024 { // 10MB limit
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"status":      "failed",
-			"status_code": 400,
-			"message":     "File size must not exceed 10MB",
-			"data":        []interface{}{},
-		})
-	}
-
-	// Check file extension
-	allowedExts := []string{".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
-	fileExt := strings.ToLower(filepath.Ext(file.Filename))
-	isValidExt := false
-	for _, ext := range allowedExts {
-		if fileExt == ext {
-			isValidExt = true
-			break
+	// Validate file if provided
+	if len(files) > 0 {
+		file = files[0]
+		if file.Size > 10*1024*1024 { // 10MB limit
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"status":      "failed",
+				"status_code": 400,
+				"message":     "File size must not exceed 10MB",
+				"data":        []interface{}{},
+			})
 		}
-	}
-	if !isValidExt {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"status":      "failed",
-			"status_code": 400,
-			"message":     "Invalid file type. Allowed types: pdf, jpg, jpeg, png, doc, docx",
-			"data":        []interface{}{},
-		})
+
+		// Check file extension
+		allowedExts := []string{".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
+		fileExt := strings.ToLower(filepath.Ext(file.Filename))
+		isValidExt := false
+		for _, ext := range allowedExts {
+			if fileExt == ext {
+				isValidExt = true
+				break
+			}
+		}
+		if !isValidExt {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"status":      "failed",
+				"status_code": 400,
+				"message":     "Invalid file type. Allowed types: pdf, jpg, jpeg, png, doc, docx",
+				"data":        []interface{}{},
+			})
+		}
 	}
 
 	// Get current user from context
@@ -221,44 +217,50 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 		}
 		newLedger = ledger
 
-		// Get username for folder structure
-		username, ok := userInfo["username"].(string)
-		if !ok || username == "" {
-			username = fmt.Sprintf("user_%d", userID) // fallback if username not available
-		}
+		// Handle file upload only if file was provided
+		if file != nil {
+			// Get username for folder structure
+			username, ok := userInfo["username"].(string)
+			if !ok || username == "" {
+				username = fmt.Sprintf("user_%d", userID) // fallback if username not available
+			}
 
-		// Create organized upload directory structure: doc_credit/username/date/
-		currentDate := time.Now().Format("2006-01-02") // YYYY-MM-DD format
-		uploadDir := fmt.Sprintf("uploads/doc_credit/%s/%s", username, currentDate)
-		if err := os.MkdirAll(uploadDir, 0755); err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Failed to create upload directory")
-		}
+			// Create organized upload directory structure: doc_credit/username/date/
+			currentDate := time.Now().Format("2006-01-02") // YYYY-MM-DD format
+			uploadDir := fmt.Sprintf("uploads/doc_credit/%s/%s", username, currentDate)
+			if err := os.MkdirAll(uploadDir, 0755); err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Failed to create upload directory")
+			}
 
-		// Generate unique filename with timestamp
-		timestamp := time.Now().Format("150405") // HHMMSS format
-		safeFilename := strings.ReplaceAll(file.Filename, " ", "_")
-		// Remove any potentially dangerous characters
-		safeFilename = strings.ReplaceAll(safeFilename, "..", "_")
-		filename := fmt.Sprintf("%s_%s", timestamp, safeFilename)
-		filePath := fmt.Sprintf("%s/%s", uploadDir, filename)
+			// Generate unique filename with timestamp
+			timestamp := time.Now().Format("150405") // HHMMSS format
+			safeFilename := strings.ReplaceAll(file.Filename, " ", "_")
+			// Remove any potentially dangerous characters
+			safeFilename = strings.ReplaceAll(safeFilename, "..", "_")
+			filename := fmt.Sprintf("%s_%s", timestamp, safeFilename)
+			filePath := fmt.Sprintf("%s/%s", uploadDir, filename)
 
-		// Save the file
-		if err := c.SaveFile(file, filePath); err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Failed to save uploaded file")
-		}
-		savedDocPath = filePath
-		fmt.Println("Ledger ID:", ledger.ID)
-		// Create document record
-		doc := accountModel.LedgerUpdateDocument{
-			AccountLedgerID: ledger.ID,
-			Path:            filePath,
-			CreatedAt:       ptrTime(time.Now()),
-			UpdatedAt:       ptrTime(time.Now()),
-		}
-		if err := tx.Omit("id").Create(&doc).Error; err != nil {
-			// Remove the uploaded file if document creation fails
-			os.Remove(filePath)
-			return err
+			// Save the file
+			if err := c.SaveFile(file, filePath); err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Failed to save uploaded file")
+			}
+			savedDocPath = filePath
+
+			// Create document record only if file was uploaded
+			fmt.Println("Ledger ID:", ledger.ID)
+			fmt.Println("File Path:", filePath)
+			doc := accountModel.LedgerUpdateDocument{
+				AccountLedgerID: ledger.ID,
+				Path:            filePath,
+				CreatedAt:       ptrTime(time.Now()),
+				UpdatedAt:       ptrTime(time.Now()),
+			}
+
+			if err := tx.Create(&doc).Error; err != nil {
+				// Remove the uploaded file if document creation fails
+				os.Remove(filePath)
+				return err
+			}
 		}
 
 		// Update account balance
@@ -308,18 +310,25 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 		CreatedAt:  time.Now(),
 	})
 
+	// Prepare response data
+	responseData := fiber.Map{
+		"ledger_id":        newLedger.ID,
+		"amount":           amountFloat,
+		"reference":        reference,
+		"account_number":   accountNumber,
+		"transaction_time": newLedger.CreatedAt,
+	}
+
+	// Add document path only if file was uploaded
+	if savedDocPath != "" {
+		responseData["document_path"] = savedDocPath
+	}
+
 	// Return success response
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"status":      "success",
 		"status_code": 201,
 		"message":     "Balance credited successfully",
-		"data": []fiber.Map{{
-			"ledger_id":        newLedger.ID,
-			"amount":           amountFloat,
-			"reference":        reference,
-			"account_number":   accountNumber,
-			"document_path":    savedDocPath,
-			"transaction_time": newLedger.CreatedAt,
-		}},
+		"data":        []fiber.Map{responseData},
 	})
 }
