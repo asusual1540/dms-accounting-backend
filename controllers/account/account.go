@@ -359,6 +359,10 @@ func (a *AccountController) Credit(c *fiber.Ctx) error {
 	})
 }
 
+/*==================================================================================================================
+| Operator Debit Part
+===================================================================================================================*/
+
 type DebitRequest struct {
 	Reference     string  `json:"reference"`
 	Amount        float64 `json:"amount"`
@@ -388,7 +392,6 @@ func (r DebitRequest) Validate() string {
 	}
 	return ""
 }
-
 func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
 	var req DebitRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -493,6 +496,63 @@ func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
 		})
 
 	}
+	//need req.RecipientID to update the balance
+	var recipientUserRecord user.User
+	if err := a.db.Where("id = ?", req.RecipientID).First(&recipientUserRecord).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Error(fmt.Sprintf("Recipient user not found with ID: %d", req.RecipientID), err)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status":  "error",
+				"message": "Recipient user not found",
+			})
+		}
+		logger.Error("Database error while fetching recipient user", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	var recipientUserAccount accountModel.UserAccount
+	if err := a.db.Where("user_id = ?", recipientUserRecord.ID).First(&recipientUserAccount).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Error(fmt.Sprintf("Recipient UserAccount not found for user ID: %d", recipientUserRecord.ID), err)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status":  "error",
+				"message": "Recipient user account not found",
+			})
+		}
+		logger.Error("Database error while fetching recipient user account", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+	var recipientAccountRecord accountModel.Account
+	if err := a.db.Where("id = ?", recipientUserAccount.AccountID).First(&recipientAccountRecord).Error; err != nil {
+		logger.Error("Database error while fetching recipient account details", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+	// Deduct amount from recipient's account balance
+	if recipientAccountRecord.CurrentBalance < req.Amount {
+		logger.Error("Insufficient balance in recipient's account", nil)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Insufficient balance in recipient's account",
+		})
+	}
+	recipientAccountRecord.CurrentBalance -= req.Amount
+	if err := a.db.Save(&recipientAccountRecord).Error; err != nil {
+		logger.Error("Database error while updating recipient account balance", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
 	// For debugging, return user and account info
 
 	return c.Status(200).JSON(fiber.Map{
@@ -505,6 +565,11 @@ func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
 		},
 	})
 }
+
+/*==================================================================================================================
+| End Operator Debit Part
+===================================================================================================================*/
+
 func (a *AccountController) Debit(c *fiber.Ctx) error {
 	userInfo := c.Locals("user").(map[string]interface{})
 	permissions := c.Locals("permissions").([]string)
