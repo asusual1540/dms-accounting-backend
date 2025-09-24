@@ -240,27 +240,29 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 			filename := fmt.Sprintf("%s_%s", timestamp, safeFilename)
 			filePath := fmt.Sprintf("%s/%s", uploadDir, filename)
 
-			// Save the file
-			if err := c.SaveFile(file, filePath); err != nil {
-				return fiber.NewError(fiber.StatusInternalServerError, "Failed to save uploaded file")
-			}
-			savedDocPath = filePath
+		// Save the file
+		if err := c.SaveFile(file, filePath); err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Failed to save uploaded file")
+		}
+		savedDocPath = filePath
+		fmt.Println("Ledger ID:", ledger.ID)
+		// Get the next available ID for ledger_update_documents
+		var maxID uint
+		tx.Raw("SELECT COALESCE(MAX(id), 0) FROM ledger_update_documents").Scan(&maxID)
+		nextID := maxID + 1
 
-			// Create document record only if file was uploaded
-			fmt.Println("Ledger ID:", ledger.ID)
-			fmt.Println("File Path:", filePath)
-			doc := accountModel.LedgerUpdateDocument{
-				AccountLedgerID: ledger.ID,
-				Path:            filePath,
-				CreatedAt:       ptrTime(time.Now()),
-				UpdatedAt:       ptrTime(time.Now()),
-			}
-
-			if err := tx.Create(&doc).Error; err != nil {
-				// Remove the uploaded file if document creation fails
-				os.Remove(filePath)
-				return err
-			}
+		// Create document record with explicit ID
+		if err := tx.Exec(
+			"INSERT INTO ledger_update_documents (id, account_ledger_id, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+			nextID,
+			ledger.ID,
+			filePath,
+			time.Now(),
+			time.Now(),
+		).Error; err != nil {
+			// Remove the uploaded file if document creation fails
+			os.Remove(filePath)
+			return err
 		}
 
 		// Update account balance
