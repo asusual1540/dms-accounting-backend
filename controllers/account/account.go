@@ -567,7 +567,6 @@ func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
 }
 
 // operatorDebitbill
-
 type OperatorDebitBillRequest struct {
 	LedgerIds []uint `json:"ledger_ids"`
 }
@@ -616,7 +615,7 @@ func (a *AccountController) OperatorDebitbill(c *fiber.Ctx) error {
 	// fetch acount ledger table data by ledger ids
 
 	ledgersRecord := accountModel.AccountLedger{}
-	if err := a.db.Where("id IN ?", req.LedgerIds).Find(&ledgersRecord).Error; err != nil {
+	if err := a.db.Where("id IN ?", req.LedgerIds).Where("sender_id = ?", ledgers[0].SenderID).Find(&ledgersRecord).Error; err != nil {
 		logger.Error("Database error while fetching ledgers", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"status":  "error",
@@ -631,36 +630,7 @@ func (a *AccountController) OperatorDebitbill(c *fiber.Ctx) error {
 		}
 	}
 
-	// Here you would typically create a new bill record in your PostPaidBill table
-	// For demonstration, we'll just log the total amount and ledger IDs
-	logger.Info(fmt.Sprintf("Creating bill for ledgers: %v with total amount: %.2f", req.LedgerIds, totalAmount))
-
-	// Example: Generate a unique bill UUID
-
 	// Create a new bill record
-	/*
-		type PostPaidBill struct {
-			ID             uint    `gorm:"primaryKey;autoIncrement"`
-			BillUuid       string  `gorm:"size:36;unique;not null"`
-			OrganizationID uint    `gorm:"index;not null"`
-			Amount         float64 `gorm:"type:decimal(10,2);not null"`
-			IsPaid         bool    `gorm:"default:false"`
-
-			SenderID   uint   `gorm:"index;not null"`
-			ReceiverID uint   `gorm:"index;not null"`
-			Reference  string `gorm:"type:text"`
-
-			IsApproved bool       `gorm:"default:false"`
-			ApprovedAt *time.Time `gorm:"autoCreateTime"`
-
-			CreatedAt time.Time `gorm:"autoCreateTime"`
-			UpdatedAt time.Time `gorm:"autoUpdateTime"`
-
-			// Relationships
-			Organization organization.Organization `gorm:"foreignKey:OrganizationID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
-			Sender       user.User                 `gorm:"foreignKey:SenderID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
-			Receiver     user.User                 `gorm:"foreignKey:ReceiverID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
-		}*/
 	BillUuid := BillUuidGenerator()
 	// Here you would create a new bill record in the database with the generated UUID
 	// For example:
@@ -711,6 +681,332 @@ func (a *AccountController) OperatorDebitbill(c *fiber.Ctx) error {
 
 /*==================================================================================================================
 | End Operator Debit Part
+===================================================================================================================*/
+
+/*
+[==================================================================================================================
+| Recipient User Post Paid Bill Table update after payment is_paid = true and update account balance increase
+===================================================================================================================
+*/
+type PostPaidBillPaymentRequest struct {
+	//BillUuid string `json:"bill_uuid"`
+	BillId uint `json:"bill_id"`
+}
+
+func (a *AccountController) PostPaidBillPayment(c *fiber.Ctx) error {
+	var req PostPaidBillPaymentRequest
+	if err := c.BodyParser(&req); err != nil {
+		logger.Error("Error parsing request body", err)
+		return c.Status(fiber.StatusBadRequest).JSON(types.ApiResponse{
+			Message: fmt.Errorf("Error parsing request body: %v", err).Error(),
+			Status:  fiber.StatusBadRequest,
+			Data:    nil,
+		})
+	}
+	if req.BillId == 0 {
+		logger.Error("Bill ID is required", nil)
+		return c.Status(fiber.StatusBadRequest).JSON(types.ApiResponse{
+			Message: "Bill ID is required",
+			Status:  fiber.StatusBadRequest,
+			Data:    nil,
+		})
+	}
+	// Try to get user claims from the JWT token - use map[string]interface{} since that's what's actually stored
+	receiverUserClaims, ok := c.Locals("user").(map[string]interface{})
+	if !ok {
+		// Let's also check what's actually in the context
+		userLocal := c.Locals("user")
+		logger.Error(fmt.Sprintf("Unable to extract user claims from token. Context contains: %+v", userLocal), nil)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Invalid or missing authentication token",
+		})
+	}
+	// Extract user UUID from claims
+	receiverUserUUID, ok := receiverUserClaims["uuid"].(string)
+	if !ok || receiverUserUUID == "" {
+		logger.Error("User UUID not found in token claims", nil)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "User UUID not found in token",
+		})
+	}
+
+	// Find user by UUID
+	var receiverUserRecord user.User
+	if err := a.db.Where("uuid = ?", receiverUserUUID).First(&receiverUserRecord).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Error(fmt.Sprintf("User not found with UUID: %s", receiverUserUUID), err)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status":  "error",
+				"message": "User not found",
+			})
+		}
+		logger.Error("Database error while fetching user", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	// Fetch the bill record
+	var bill accountModel.PostPaidBill
+	if err := a.db.Where("id = ? AND receiver_id = ?", req.BillId, receiverUserRecord.ID).First(&bill).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Error("Bill not found or does not belong to the user", err)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status":  "error",
+				"message": "Bill not found or does not belong to the user",
+			})
+		}
+		logger.Error("Database error while fetching bill", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	if bill.IsPaid {
+		logger.Error("Bill is already paid", nil)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Bill is already paid",
+		})
+	}
+
+	// Start DB transaction
+	err := a.db.Transaction(func(tx *gorm.DB) error {
+		// Fetch receiver's account
+		var receiverUserAccount accountModel.UserAccount
+		if err := tx.Where("user_id = ?", receiverUserRecord.ID).First(&receiverUserAccount).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fiber.NewError(fiber.StatusNotFound, "User account not found")
+			}
+			return err
+		}
+
+		var receiverAccountRecord accountModel.Account
+		if err := tx.Where("id = ?", receiverUserAccount.AccountID).First(&receiverAccountRecord).Error; err != nil {
+			return err
+		}
+
+		// Update bill as paid
+		bill.IsPaid = true
+		bill.UpdatedAt = time.Now()
+		if err := tx.Save(&bill).Error; err != nil {
+			return err
+		}
+
+		// Credit amount to receiver's account
+		receiverAccountRecord.CurrentBalance += bill.Amount
+		if err := tx.Save(&receiverAccountRecord).Error; err != nil {
+			return err
+		}
+		ledger := accountModel.AccountLedger{
+			BillID:         &bill.ID,
+			RecipientID:    receiverUserRecord.ID,
+			SenderID:       receiverUserRecord.ID, // Self-credit for bill payment
+			OrganizationID: ptrUint(1),            // Set appropriate organization ID if applicable
+			Credit:         &bill.Amount,
+			Debit:          nil,
+			Reference:      fmt.Sprintf("Bill Payment - %s", bill.BillUuid),
+			//ToAccount:      ptrUint(receiverAccountRecord.ID),
+			//FromAccount:    ptrUint(receiverAccountRecord.ID),
+			ApprovalStatus: 1,
+			ApprovedBy:     nil,
+			VerifiedBy:     nil,
+			IsAutoVerified: true,
+			CreatedAt:      ptrTime(time.Now()),
+			UpdatedAt:      ptrTime(time.Now()),
+			StatusActive:   1,
+			IsDelete:       0,
+		}
+		if err := tx.Create(&ledger).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+
+	// Handle transaction result
+	if err != nil {
+		if fiberErr, ok := err.(*fiber.Error); ok {
+			return c.Status(fiberErr.Code).JSON(fiber.Map{
+				"status":  "error",
+				"message": fiberErr.Message,
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Transaction failed",
+			"error":   err.Error(),
+		})
+	}
+
+	return c.Status(200).JSON(fiber.Map{
+		"status":  "success",
+		"message": "Bill payment successful and account credited",
+	})
+}
+
+func ptrInt(i int) *int {
+	return &i
+}
+func ptrUint(u uint) *uint {
+	return &u
+}
+
+/*==================================================================================================================
+| End Recipient User Post Paid Bill Table update after payment is_paid = true and update account balance increase
+===================================================================================================================*/
+
+/*
+==================================================================================================================
+| approve-bill-amount - dpmg approve bill amount and update account balance increase
+===================================================================================================================
+*/
+type ApproveBillAmountRequest struct {
+	BillId uint `json:"bill_id"`
+}
+
+func (a *AccountController) ApproveBillAmountDPMG(c *fiber.Ctx) error {
+	var req ApproveBillAmountRequest
+	if err := c.BodyParser(&req); err != nil || req.BillId == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(types.ApiResponse{
+			Message: "Bill ID is required",
+			Status:  fiber.StatusBadRequest,
+			Data:    nil,
+		})
+	}
+
+	err := a.db.Transaction(func(tx *gorm.DB) error {
+		// lock bill
+		var bill accountModel.PostPaidBill
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", req.BillId).First(&bill).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fiber.NewError(fiber.StatusNotFound, "Bill not found")
+			}
+			return err
+		}
+		if bill.IsApproved {
+			return fiber.NewError(fiber.StatusBadRequest, "Bill is already approved")
+		}
+
+		amt := bill.Amount
+		orgID := bill.OrganizationID
+
+		// sender account lock
+		var senderUA accountModel.UserAccount
+		if err := tx.Where("user_id = ?", bill.SenderID).First(&senderUA).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fiber.NewError(fiber.StatusNotFound, "Sender user account not found")
+			}
+			return err
+		}
+		var senderAcc accountModel.Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", senderUA.AccountID).First(&senderAcc).Error; err != nil {
+			return err
+		}
+		if senderAcc.CurrentBalance < amt {
+			return fiber.NewError(fiber.StatusBadRequest, "Insufficient balance in sender's account")
+		}
+
+		// receiver account lock
+		var receiverUA accountModel.UserAccount
+		if err := tx.Where("user_id = ?", bill.ReceiverID).First(&receiverUA).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fiber.NewError(fiber.StatusNotFound, "Receiver user account not found")
+			}
+			return err
+		}
+		var receiverAcc accountModel.Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", receiverUA.AccountID).First(&receiverAcc).Error; err != nil {
+			return err
+		}
+
+		// approve bill
+		now := time.Now()
+		bill.IsApproved = true
+		bill.UpdatedAt = now
+		bill.ApprovedAt = &now
+		if err := tx.Save(&bill).Error; err != nil {
+			return err
+		}
+
+		// move money: sender debit, receiver credit
+		senderAcc.CurrentBalance -= amt
+		if err := tx.Save(&senderAcc).Error; err != nil {
+			return err
+		}
+		receiverAcc.CurrentBalance += amt
+		if err := tx.Save(&receiverAcc).Error; err != nil {
+			return err
+		}
+
+		// ledgers (double-entry style)
+		refDebit := fmt.Sprintf("Bill Approval - %s", bill.BillUuid)
+		refCredit := fmt.Sprintf("Bill Approval Credit - %s", bill.BillUuid)
+
+		// debit ledger (sender)
+		if err := tx.Create(&accountModel.AccountLedger{
+			BillID:         &bill.ID,
+			RecipientID:    bill.ReceiverID,
+			SenderID:       bill.SenderID,
+			OrganizationID: &orgID,
+			Debit:          &amt,
+			Reference:      refDebit,
+			ApprovalStatus: 1,
+			IsAutoVerified: true,
+			StatusActive:   1,
+			IsDelete:       0,
+			CreatedAt:      ptrTime(now),
+			UpdatedAt:      ptrTime(now),
+		}).Error; err != nil {
+			return err
+		}
+
+		// credit ledger (receiver)
+		if err := tx.Create(&accountModel.AccountLedger{
+			BillID:         &bill.ID,
+			RecipientID:    bill.ReceiverID,
+			SenderID:       bill.SenderID,
+			OrganizationID: &orgID,
+			Credit:         &amt,
+			Reference:      refCredit,
+			ApprovalStatus: 1,
+			IsAutoVerified: true,
+			StatusActive:   1,
+			IsDelete:       0,
+			CreatedAt:      ptrTime(now),
+			UpdatedAt:      ptrTime(now),
+		}).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		if f, ok := err.(*fiber.Error); ok {
+			return c.Status(f.Code).JSON(fiber.Map{"status": "error", "message": f.Message})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Transaction failed",
+			"error":   err.Error(),
+		})
+	}
+
+	return c.Status(200).JSON(fiber.Map{
+		"status":  "success",
+		"message": "Bill approved; sender debited and receiver credited",
+	})
+}
+
+/*==================================================================================================================
+| End approve-bill-amount - dpmg approve bill amount and update account balance increase
 ===================================================================================================================*/
 
 func (a *AccountController) Debit(c *fiber.Ctx) error {
