@@ -7,6 +7,7 @@ import (
 	accountModel "dms-accounting/models/account"
 	"dms-accounting/models/organization"
 	"dms-accounting/models/user"
+	"dms-accounting/types"
 	"dms-accounting/types/account"
 	"encoding/json"
 	"fmt"
@@ -358,103 +359,152 @@ func (a *AccountController) Credit(c *fiber.Ctx) error {
 	})
 }
 
-//DPMG Self Credit Balance
-//func (a *AccountController) DPMGSelfCredit(c *fiber.Ctx) error {
-//	var req struct {
-//		DocumentPath   string  `json:"document_path"`
-//		Amount         float64 `json:"amount"`
-//		AccountNumber  string  `json:"account_number"`
-//		Reference      string  `json:"reference"`
-//	}
-//	if err := c.BodyParser(&req); err != nil {
-//		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"status": "error", "message": "Invalid request", "error": err.Error()})
-//	}
-//	if req.AccountNumber == "" || req.Amount <= 0 || req.Reference == "" {
-//		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"status": "error", "message": "All fields are required and amount must be positive"})
-//	}
-//	// Start DB transaction
-//	err := database.DB.Transaction(func(tx *gorm.DB) error {
-//		// Lock account balance
-//		var toAccount accountModel.Account
-//		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-//			Where("account_number = ?", req.AccountNumber).First(&toAccount).Error; err != nil {
-//			return fiber.NewError(fiber.StatusNotFound, "Account not found for credit")
-//		}
-//
-//		// get token user id
-//		userInfo := c.Locals("user").(map[string]interface{})
-//		var toUser user.User
-//		if err := database.DB.Where("id = ?", userInfo["id"]).First(&toUser).Error; err != nil {
-//			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"status": "error", "message": "Target user not found"})
-//		}
-//
-//
-//		// Create ledger entry
-//		ledger := accountModel.AccountLedger{
-//			RecipientID:    toUser.ID,
-//			SenderID:       toUser.ID, // self credit
-//			Reference:      req.Reference,
-//			Credit:         &req.Amount,
-//			IsAutoVerified: true,
-//			StatusActive:   1,
-//			IsDelete:       0,
-//
-//			ToAccount:   &toAccount.ID,
-//			FromAccount: &toAccount.ID,
-//			ApprovalStatus: 1, // auto approved
-//			ApprovedBy:     &toUser.ID,
-//			ApprovedAt:     ptrTime(time.Now()),
-//			VerifiedBy:     &toUser.ID,
-//			VerifiedAt:     ptrTime(time.Now()),
-//			CreatedAt:      ptrTime(time.Now()),
-//			UpdatedAt:      ptrTime(time.Now()),
-//		}
-//		if err := tx.Create(&ledger).Error; err != nil {
-//			return err
-//		}
-//
-//		// Update balance
-//		toAccount.CurrentBalance += req.Amount
-//		if err := tx.Save(&toAccount).Error; err != nil {
-//			return err
-//		}
-//
-//		// Save document if provided
-//		if req.DocumentPath != "" {
-//			doc := accountModel.LedgerUpdateDocument{
-//				AccountLedgerID: ledger.ID,
-//				Path:    req.DocumentPath,
-//				CreatedAt:       ptrTime(time.Now()),
-//				UpdatedAt:       ptrTime(time.Now()),
-//			}
-//			if err := tx.Create(&doc).Error; err != nil {
-//				return err
-//			}
-//		}
-//		return nil
-//	})
-//
-//	if err != nil {
-//		if fiberErr, ok := err.(*fiber.Error); ok {
-//			return c.Status(fiberErr.Code).JSON(fiber.Map{
-//				"status":  "error",
-//				"message": fiberErr.Message,
-//			})
-//		}
-//		return c.Status(500).JSON(fiber.Map{
-//			"status":  "error",
-//			"message": "Transaction failed",
-//			"error":   err.Error(),
-//		})
-//	}
-//
-//	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-//		"status":  "success",
-//		"message": "Balance credited successfully",
-//	}
-//
-//}
+type DebitRequest struct {
+	Reference     string  `json:"reference"`
+	Amount        float64 `json:"amount"`
+	AccountNumber string  `json:"account_number"`
+	RecipientID   uint    `json:"recipient_id"`
+}
 
+func (r DebitRequest) Validate() string {
+	// Ensure that login identifier is provided (either email or phone)
+	if r.Reference == "" {
+		return "Either reference is required"
+	}
+
+	// Validate amount
+	if r.Amount <= 0 {
+		return "Amount must be greater than zero"
+	}
+
+	// Validate
+	if r.AccountNumber == "" {
+		return "Account number is required"
+	}
+
+	// Validate recipient
+	if r.RecipientID == 0 {
+		return "Recipient ID is required"
+	}
+	return ""
+}
+
+func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
+	var req DebitRequest
+	if err := c.BodyParser(&req); err != nil {
+		logger.Error("Error parsing request body", err)
+		return c.Status(fiber.StatusBadRequest).JSON(types.ApiResponse{
+			Message: fmt.Errorf("Error parsing request body: %v", err).Error(),
+			Status:  fiber.StatusBadRequest,
+			Data:    nil,
+		})
+	}
+	if v := req.Validate(); v != "" {
+		logger.Error(v, nil)
+		return c.Status(fiber.StatusBadRequest).JSON(types.ApiResponse{
+			Message: v,
+			Status:  fiber.StatusBadRequest,
+			Data:    nil,
+		})
+	}
+
+	// Try to get user claims from the JWT token - use map[string]interface{} since that's what's actually stored
+	debitUserClaims, ok := c.Locals("user").(map[string]interface{})
+	if !ok {
+		// Let's also check what's actually in the context
+		userLocal := c.Locals("user")
+		logger.Error(fmt.Sprintf("Unable to extract user claims from token. Context contains: %+v", userLocal), nil)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Invalid or missing authentication token",
+		})
+	}
+	// Extract user UUID from claims
+	debitUserUUID, ok := debitUserClaims["uuid"].(string)
+	if !ok || debitUserUUID == "" {
+		logger.Error("User UUID not found in token claims", nil)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "User UUID not found in token",
+		})
+	}
+
+	// Find user by UUID
+	var debitUserRecord user.User
+	if err := a.db.Where("uuid = ?", debitUserUUID).First(&debitUserRecord).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Error(fmt.Sprintf("User not found with UUID: %s", debitUserUUID), err)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status":  "error",
+				"message": "User not found",
+			})
+		}
+		logger.Error("Database error while fetching user", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	// Find UserAccount by user ID
+	var debitUserAccount accountModel.UserAccount
+	if err := a.db.Where("user_id = ?", debitUserRecord.ID).First(&debitUserAccount).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Error(fmt.Sprintf("UserAccount not found for user ID: %d", debitUserRecord.ID), err)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status":  "error",
+				"message": "User account not found",
+			})
+		}
+		logger.Error("Database error while fetching user account", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	// Find Account details by account ID
+	var debitUseraccountRecord accountModel.Account
+	if err := a.db.Where("id = ?", debitUserAccount.AccountID).First(&debitUseraccountRecord).Error; err != nil {
+		logger.Error("Database error while fetching account details", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	//Debit from Account Ladger table
+	ledger := accountModel.AccountLedger{
+		RecipientID: req.RecipientID,
+		SenderID:    debitUserRecord.ID,
+		Debit:       &req.Amount,
+		Reference:   req.Reference,
+		//OrganizationID: organization.Organization{ID: targetAccount.ID},
+		StatusActive: 1,
+		IsDelete:     0,
+		CreatedAt:    ptrTime(time.Now()),
+		UpdatedAt:    ptrTime(time.Now()),
+	}
+	if err := a.db.Create(&ledger).Error; err != nil {
+		logger.Error("Database error while creating ledger entry", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+
+	}
+	// For debugging, return user and account info
+
+	return c.Status(200).JSON(fiber.Map{
+		"status":  "success",
+		"message": "Operator debit endpoint",
+		"data": fiber.Map{
+			"user":    debitUserRecord,
+			"account": debitUseraccountRecord,
+			"ledger":  ledger,
+		},
+	})
+}
 func (a *AccountController) Debit(c *fiber.Ctx) error {
 	userInfo := c.Locals("user").(map[string]interface{})
 	permissions := c.Locals("permissions").([]string)
