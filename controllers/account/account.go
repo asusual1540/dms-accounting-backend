@@ -10,13 +10,14 @@ import (
 	"dms-accounting/types/account"
 	"encoding/json"
 	"fmt"
-	"github.com/gofiber/fiber/v2"
-	"gorm.io/gorm/clause"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"gorm.io/gorm/clause"
 
 	"gorm.io/gorm"
 )
@@ -1685,4 +1686,122 @@ func (a *AccountController) GetFailedTransactions(c *fiber.Ctx) error {
 // ptrTime converts a time.Time to *time.Time
 func ptrTime(t time.Time) *time.Time {
 	return &t
+}
+
+// GetUserAccount retrieves the logged-in user's account information
+func (a *AccountController) GetUserAccount(c *fiber.Ctx) error {
+	// Debug: Check what's in the context
+	logger.Info("Debugging user context...")
+
+	// Try to get user claims from the JWT token - use map[string]interface{} since that's what's actually stored
+	userClaims, ok := c.Locals("user").(map[string]interface{})
+	if !ok {
+		// Let's also check what's actually in the context
+		userLocal := c.Locals("user")
+		logger.Error(fmt.Sprintf("Unable to extract user claims from token. Context contains: %+v", userLocal), nil)
+
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Invalid or missing authentication token",
+		})
+	}
+
+	logger.Info(fmt.Sprintf("User claims found: %+v", userClaims))
+
+	// Extract user UUID from claims
+	userUUID, ok := userClaims["uuid"].(string)
+	if !ok || userUUID == "" {
+		logger.Error("User UUID not found in token claims", nil)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "User UUID not found in token",
+		})
+	}
+
+	// Find user by UUID
+	var userRecord user.User
+	if err := a.db.Where("uuid = ?", userUUID).First(&userRecord).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Error(fmt.Sprintf("User not found with UUID: %s", userUUID), err)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status":  "error",
+				"message": "User not found",
+			})
+		}
+		logger.Error("Database error while fetching user", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	// Find UserAccount by user ID
+	var userAccount accountModel.UserAccount
+	if err := a.db.Where("user_id = ?", userRecord.ID).First(&userAccount).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Error(fmt.Sprintf("UserAccount not found for user ID: %d", userRecord.ID), err)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status":  "error",
+				"message": "User account not found",
+			})
+		}
+		logger.Error("Database error while fetching user account", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	// Find Account details by account ID
+	var accountRecord accountModel.Account
+	if err := a.db.Where("id = ?", userAccount.AccountID).First(&accountRecord).Error; err != nil {
+		logger.Error("Database error while fetching account details", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	// Prepare response data
+	accountInfo := fiber.Map{
+		"user_info": fiber.Map{
+			"id":             userRecord.ID,
+			"uuid":           userRecord.Uuid,
+			"username":       userRecord.Username,
+			"legal_name":     userRecord.LegalName,
+			"phone":          userRecord.Phone,
+			"email":          userRecord.Email,
+			"phone_verified": userRecord.PhoneVerified,
+			"email_verified": userRecord.EmailVerified,
+		},
+		"account_info": fiber.Map{
+			"id":              accountRecord.ID,
+			"account_number":  accountRecord.AccountNumber,
+			"current_balance": accountRecord.CurrentBalance,
+			"account_type":    accountRecord.AccountType,
+			"is_active":       accountRecord.IsActive,
+			"is_locked":       accountRecord.IsLocked,
+			"max_limit":       accountRecord.MaxLimit,
+			"balance_type":    accountRecord.BalanceType,
+			"currency":        accountRecord.Currency,
+			"created_at":      accountRecord.CreatedAt,
+			"updated_at":      accountRecord.UpdatedAt,
+		},
+		"user_account_info": fiber.Map{
+			"id":         userAccount.ID,
+			"created_by": userAccount.CreatedBy,
+			"updated_by": userAccount.UpdatedBy,
+			"is_active":  userAccount.IsActive,
+			"created_at": userAccount.CreatedAt,
+			"updated_at": userAccount.UpdatedAt,
+		},
+	}
+
+	logger.Success(fmt.Sprintf("Successfully retrieved account information for user: %s", userUUID))
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"status":  "success",
+		"message": "User account information retrieved successfully",
+		"data":    accountInfo,
+	})
 }
