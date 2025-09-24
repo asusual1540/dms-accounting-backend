@@ -137,8 +137,11 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	accountingGroup := api.Group("/v1")
 	accountingGroup.Post("/self-credit", middleware.RequirePermissions(
 		constants.PermEkdakDPMGFull,
+		constants.PermEkdakSuperAdminFull,
 		constants.PermCorporateDPMGFull,
+		constants.PermDMSAccountingSuperAdminFull,
 		constants.PermDMSAccountingDPMGFull,
+		constants.PermDMSAccountingPostmasterFull,
 	), selfCreditController.SelfCredit)
 
 }

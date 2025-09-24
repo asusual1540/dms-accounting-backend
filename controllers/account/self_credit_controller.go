@@ -194,10 +194,12 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "Account currency must be BDT for self credit")
 		}
 
-		// Create ledger entry first to get the ID
+		// Create ledger entry for self-credit (no bill needed)
 		ledger := accountModel.AccountLedger{
+			BillID:         nil, // No bill for self credit
 			RecipientID:    userID,
 			SenderID:       userID, // self credit
+			OrganizationID: nil,    // No organization for self credit
 			Reference:      reference,
 			Credit:         &amountFloat,
 			IsAutoVerified: true,
@@ -245,7 +247,7 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Failed to save uploaded file")
 		}
 		savedDocPath = filePath
-
+		fmt.Println("Ledger ID:", ledger.ID)
 		// Create document record
 		doc := accountModel.LedgerUpdateDocument{
 			AccountLedgerID: ledger.ID,
@@ -253,7 +255,7 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 			CreatedAt:       ptrTime(time.Now()),
 			UpdatedAt:       ptrTime(time.Now()),
 		}
-		if err := tx.Create(&doc).Error; err != nil {
+		if err := tx.Omit("id").Create(&doc).Error; err != nil {
 			// Remove the uploaded file if document creation fails
 			os.Remove(filePath)
 			return err
