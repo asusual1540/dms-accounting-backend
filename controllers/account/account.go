@@ -774,7 +774,7 @@ func (a *AccountController) PostPaidBillPayment(c *fiber.Ctx) error {
 	// Start DB transaction
 	err := a.db.Transaction(func(tx *gorm.DB) error {
 		// Fetch receiver's account
-		var receiverUserAccount accountModel.UserAccount
+		var receiverUserAccount accountModel.AccountOwner
 		if err := tx.Where("user_id = ?", receiverUserRecord.ID).First(&receiverUserAccount).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return fiber.NewError(fiber.StatusNotFound, "User account not found")
@@ -813,7 +813,7 @@ func (a *AccountController) PostPaidBillPayment(c *fiber.Ctx) error {
 			ApprovedBy:     nil,
 			VerifiedBy:     nil,
 			IsAutoVerified: true,
-			CreatedAt:      ptrTime(time.Now()),
+			CreatedAt:      time.Now(),
 			UpdatedAt:      ptrTime(time.Now()),
 			StatusActive:   1,
 			IsDelete:       0,
@@ -893,7 +893,7 @@ func (a *AccountController) ApproveBillAmountDPMG(c *fiber.Ctx) error {
 		orgID := bill.OrganizationID
 
 		// sender account lock
-		var senderUA accountModel.UserAccount
+		var senderUA accountModel.AccountOwner
 		if err := tx.Where("user_id = ?", bill.SenderID).First(&senderUA).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return fiber.NewError(fiber.StatusNotFound, "Sender user account not found")
@@ -910,7 +910,7 @@ func (a *AccountController) ApproveBillAmountDPMG(c *fiber.Ctx) error {
 		}
 
 		// receiver account lock
-		var receiverUA accountModel.UserAccount
+		var receiverUA accountModel.AccountOwner
 		if err := tx.Where("user_id = ?", bill.ReceiverID).First(&receiverUA).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return fiber.NewError(fiber.StatusNotFound, "Receiver user account not found")
@@ -958,7 +958,7 @@ func (a *AccountController) ApproveBillAmountDPMG(c *fiber.Ctx) error {
 			IsAutoVerified: true,
 			StatusActive:   1,
 			IsDelete:       0,
-			CreatedAt:      ptrTime(now),
+			CreatedAt:      now,
 			UpdatedAt:      ptrTime(now),
 		}).Error; err != nil {
 			return err
@@ -976,7 +976,7 @@ func (a *AccountController) ApproveBillAmountDPMG(c *fiber.Ctx) error {
 			IsAutoVerified: true,
 			StatusActive:   1,
 			IsDelete:       0,
-			CreatedAt:      ptrTime(now),
+			CreatedAt:      now,
 			UpdatedAt:      ptrTime(now),
 		}).Error; err != nil {
 			return err
@@ -1005,6 +1005,62 @@ func (a *AccountController) ApproveBillAmountDPMG(c *fiber.Ctx) error {
 /*==================================================================================================================
 | End approve-bill-amount - dpmg approve bill amount and update account balance increase
 ===================================================================================================================*/
+
+/*==================================================================================================================
+| Get Account ledger with Debit
+===================================================================================================================*/
+
+func (a *AccountController) GetAccountLedgerList(c *fiber.Ctx) error {
+
+	// Try to get user claims from the JWT token - use map[string]interface{} since that's what's actually stored
+	getUserClaims, ok := c.Locals("user").(map[string]interface{})
+	if !ok {
+		// Let's also check what's actually in the context
+		userLocal := c.Locals("user")
+		logger.Error(fmt.Sprintf("Unable to extract user claims from token. Context contains: %+v", userLocal), nil)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Invalid or missing authentication token",
+		})
+	}
+	// Extract user UUID from claims
+	getUserUUID, ok := getUserClaims["uuid"].(string)
+	if !ok || getUserUUID == "" {
+		logger.Error("User UUID not found in token claims", nil)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"status":  "error",
+			"message": "User UUID not found in token",
+		})
+	}
+
+	// Find user by UUID
+	var getUserRecord user.User
+	if err := a.db.Where("uuid = ?", getUserUUID).First(&getUserRecord).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Error(fmt.Sprintf("User not found with UUID: %s", getUserUUID), err)
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status":  "error",
+				"message": "User not found",
+			})
+		}
+		logger.Error("Database error while fetching user", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	var ledgers []accountModel.AccountLedger
+	query := a.db.Model(&accountModel.AccountLedger{}).Where("is_delete = ? AND status_active = ?", 0, 1)
+	query = query.Where("recipient_id = ? OR sender_id = ?", getUserRecord.ID, getUserRecord.ID)
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"status":  "success",
+		"message": "Ledger entries retrieved successfully",
+		"data":    ledgers,
+	})
+
+}
 
 func (a *AccountController) Debit(c *fiber.Ctx) error {
 	userInfo := c.Locals("user").(map[string]interface{})
@@ -1155,34 +1211,6 @@ func contains(slice []string, val string) bool {
 	}
 	return false
 }
-
-// GetDebitsByAccountID
-// GetCreditsByAccountID
-// GetTransactionsByAccountID
-// GetTransactionsByOrganizationID
-// GetTransactionsByDateRange
-// GetTransactionsByType
-// GetBalanceByAccountID
-// GetBalanceByOrganizationID
-// GetAllAccountsByOrganizationID
-// GetAllAccounts
-// UpdateAccount
-// DeleteAccount
-// TransferFunds
-// CreateTransaction
-// GetTransaction
-// UpdateTransaction
-// DeleteTransaction
-// GenerateAccountStatement
-// GenerateOrganizationStatement
-// LockAccount
-// UnlockAccount
-// ActivateAccount
-// DeactivateAccount
-// ApproveTransaction
-// RejectTransaction
-// GetPendingTransactions
-// GetFailedTransactions
 
 func (a *AccountController) GetBalanceByAccountID(c *fiber.Ctx) error {
 	accountID := c.Params("id")

@@ -139,6 +139,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	accountingGroup.Post("/operatorDebit", middleware.RequirePermissions(
 		constants.PermDMSAccountingoperatorFull,
 	), accountController.OperatorDebit)
+
 	accountingGroup.Post("/self-credit", middleware.RequirePermissions(
 		constants.PermEkdakDPMGFull,
 		constants.PermEkdakSuperAdminFull,
@@ -147,9 +148,11 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 		constants.PermDMSAccountingDPMGFull,
 		constants.PermDMSAccountingPostmasterFull,
 	), selfCreditController.SelfCredit)
+
 	accountingGroup.Post("/admin-add-balance", middleware.RequirePermissions(
 		constants.PermDMSAccountingDPMGFull,
 	), adminBalanceController.AddBalance)
+
 	accountingGroup.Post("/operatorDebitbill", middleware.RequirePermissions(
 		constants.PermDMSAccountingoperatorFull,
 	), accountController.OperatorDebitbill)
@@ -162,5 +165,16 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	accountingGroup.Post("/approveBillAmountDPMG", middleware.RequirePermissions(
 		constants.PermDMSAccountingDPMGFull,
 	), accountController.ApproveBillAmountDPMG)
+
+	accountingGroup.Get("/account-ledger-list", middleware.RequirePermissions(
+		constants.PermDMSAccountingDPMGFull,
+		constants.PermDMSAccountingPostmasterFull,
+		constants.PermDMSAccountingoperatorFull,
+	), accountController.GetAccountLedgerList)
+
+	/*accountingGroup.Get("/account-ledger/:id", middleware.RequirePermissions(
+		constants.PermDMSAccountingDPMGFull,
+		constants.PermDMSAccountingPostmasterFull,
+	), accountController.GetAccountLedgerByID)*/
 
 }
