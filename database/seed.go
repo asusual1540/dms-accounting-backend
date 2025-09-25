@@ -18,8 +18,8 @@ func SeedData(db *gorm.DB) error {
 		return err
 	}
 
-	// Seed address data
-	if err := seedAddressData(db); err != nil {
+	// Seed address data from JSON files
+	if err := SeedAddressDataFromJSON(db); err != nil {
 		return err
 	}
 
@@ -96,132 +96,6 @@ func seedDefaultOrganization(db *gorm.DB) error {
 	}
 
 	logger.Success("✅ Default organization 'Bangladesh Post Office' created successfully")
-	return nil
-}
-
-// seedAddressData creates sample address hierarchy data
-func seedAddressData(db *gorm.DB) error {
-	// Check if divisions already exist
-	var divisionCount int64
-	db.Model(&user.Division{}).Count(&divisionCount)
-	if divisionCount > 0 {
-		logger.Debug("Address data already exists, skipping...")
-		return nil
-	}
-
-	// Create sample divisions
-	divisions := []user.Division{
-		{EnName: "Dhaka", BnName: "ঢাকা", Slug: "dhaka"},
-		{EnName: "Chittagong", BnName: "চট্টগ্রাম", Slug: "chittagong"},
-		{EnName: "Sylhet", BnName: "সিলেট", Slug: "sylhet"},
-	}
-
-	for _, division := range divisions {
-		if err := db.Create(&division).Error; err != nil {
-			logger.Error("Failed to create division", err)
-			return err
-		}
-	}
-
-	// Create sample districts for Dhaka division
-	var dhakaDivision user.Division
-	if err := db.Where("slug = ?", "dhaka").First(&dhakaDivision).Error; err != nil {
-		logger.Error("Failed to find Dhaka division", err)
-		return err
-	}
-
-	districts := []user.District{
-		{DivisionID: dhakaDivision.ID, EnName: "Dhaka", BnName: "ঢাকা", Slug: "dhaka"},
-		{DivisionID: dhakaDivision.ID, EnName: "Gazipur", BnName: "গাজীপুর", Slug: "gazipur"},
-		{DivisionID: dhakaDivision.ID, EnName: "Narayanganj", BnName: "নারায়ণগঞ্জ", Slug: "narayanganj"},
-	}
-
-	for _, district := range districts {
-		if err := db.Create(&district).Error; err != nil {
-			logger.Error("Failed to create district", err)
-			return err
-		}
-	}
-
-	// Create sample police stations for Dhaka district
-	var dhakaDistrict user.District
-	if err := db.Where("slug = ? AND division_id = ?", "dhaka", dhakaDivision.ID).First(&dhakaDistrict).Error; err != nil {
-		logger.Error("Failed to find Dhaka district", err)
-		return err
-	}
-
-	policeStations := []user.PoliceStation{
-		{DistrictID: dhakaDistrict.ID, EnName: "Dhanmondi", BnName: "ধানমন্ডি", Slug: "dhanmondi"},
-		{DistrictID: dhakaDistrict.ID, EnName: "Wari", BnName: "ওয়ারী", Slug: "wari"},
-		{DistrictID: dhakaDistrict.ID, EnName: "Gulshan", BnName: "গুলশান", Slug: "gulshan"},
-	}
-
-	for _, ps := range policeStations {
-		if err := db.Create(&ps).Error; err != nil {
-			logger.Error("Failed to create police station", err)
-			return err
-		}
-	}
-
-	// Create sample post offices for Dhanmondi police station
-	var dhanmondiPS user.PoliceStation
-	if err := db.Where("slug = ? AND district_id = ?", "dhanmondi", dhakaDistrict.ID).First(&dhanmondiPS).Error; err != nil {
-		logger.Error("Failed to find Dhanmondi police station", err)
-		return err
-	}
-
-	postOffices := []user.PostOffice{
-		{PoliceStationID: dhanmondiPS.ID, EnName: "Dhanmondi Post Office", BnName: "ধানমন্ডি পোস্ট অফিস", Slug: "dhanmondi-post-office", PostCode: "1205"},
-		{PoliceStationID: dhanmondiPS.ID, EnName: "New Market Post Office", BnName: "নিউ মার্কেট পোস্ট অফিস", Slug: "new-market-post-office", PostCode: "1205"},
-	}
-
-	for _, po := range postOffices {
-		if err := db.Create(&po).Error; err != nil {
-			logger.Error("Failed to create post office", err)
-			return err
-		}
-	}
-
-	// Create sample post office branches
-	var dhanmondiPO user.PostOffice
-	if err := db.Where("slug = ? AND police_station_id = ?", "dhanmondi-post-office", dhanmondiPS.ID).First(&dhanmondiPO).Error; err != nil {
-		logger.Error("Failed to find Dhanmondi post office", err)
-		return err
-	}
-
-	branches := []user.PostOfficeBranch{
-		{
-			PostOfficeID: &dhanmondiPO.ID,
-			Name:         stringPtr("Dhanmondi Main Branch"),
-			BnName:       stringPtr("ধানমন্ডি প্রধান শাখা"),
-			BranchCode:   stringPtr("100000"),
-			Circle:       stringPtr("Dhaka"),
-			District:     stringPtr("Dhaka"),
-			Status:       stringPtr("active"),
-			IsOpen:       stringPtr("yes"),
-			Shift:        stringPtr("full"),
-		},
-		{
-			PostOfficeID: &dhanmondiPO.ID,
-			Name:         stringPtr("Dhanmondi Sub Branch"),
-			BnName:       stringPtr("ধানমন্ডি উপ-শাখা"),
-			BranchCode:   stringPtr("100001"),
-			Circle:       stringPtr("Dhaka"),
-			District:     stringPtr("Dhaka"),
-			Status:       stringPtr("active"),
-			IsOpen:       stringPtr("yes"),
-			Shift:        stringPtr("morning"),
-		},
-	}
-
-	for _, branch := range branches {
-		if err := db.Create(&branch).Error; err != nil {
-			logger.Error("Failed to create post office branch", err)
-			return err
-		}
-	}
-
-	logger.Success("✅ Address hierarchy data seeded successfully")
 	return nil
 }
 
