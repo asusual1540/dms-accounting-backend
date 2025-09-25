@@ -1050,14 +1050,201 @@ func (a *AccountController) GetAccountLedgerList(c *fiber.Ctx) error {
 		})
 	}
 
+	// Get pagination parameters from query string
+	page := c.QueryInt("page", 1)         // Default to page 1
+	perPage := c.QueryInt("per_page", 20) // Default to 20 per page
+
+	// Get user_type filter parameter
+	userType := c.Query("user_type", "sender") // Default to sender
+
+	// Get date range parameters
+	fromDateStr := c.Query("from_date")
+	toDateStr := c.Query("to_date")
+
+	// Get entry_type filter parameter
+	entryType := c.Query("entry_type") // Optional: credit or debit
+
+	// Validate pagination parameters
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 20
+	}
+	if perPage > 100 { // Limit max per_page to prevent abuse
+		perPage = 100
+	}
+
+	// Validate user_type parameter
+	if userType != "sender" && userType != "recipient" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Invalid user_type. Must be 'sender' or 'recipient'",
+		})
+	}
+
+	// Validate and parse date range
+	var fromDate, toDate time.Time
+	var err error
+
+	if fromDateStr == "" && toDateStr == "" {
+		// Default: current day from 12:00 AM to now
+		now := time.Now()
+		fromDate = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		toDate = now
+	} else if fromDateStr != "" && toDateStr != "" {
+		// Parse both dates
+		fromDate, err = time.Parse(time.RFC3339, fromDateStr)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"status":  "error",
+				"message": "Invalid from_date format. Use ISO 8601 format (e.g., 2023-09-25T00:00:00Z)",
+			})
+		}
+
+		toDate, err = time.Parse(time.RFC3339, toDateStr)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"status":  "error",
+				"message": "Invalid to_date format. Use ISO 8601 format (e.g., 2023-09-25T23:59:59Z)",
+			})
+		}
+
+		// Validate date range
+		if fromDate.After(toDate) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"status":  "error",
+				"message": "from_date cannot be after to_date",
+			})
+		}
+	} else {
+		// Only one date provided - not allowed
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Both from_date and to_date must be provided together, or neither for default (current day)",
+		})
+	}
+
+	// Validate entry_type parameter
+	if entryType != "" && entryType != "credit" && entryType != "debit" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Invalid entry_type. Must be 'credit' or 'debit'",
+		})
+	}
+
+	// Calculate offset
+	offset := (page - 1) * perPage
+
+	// Determine which field to filter on based on user_type
+	var filterField string
+	var filterMessage string
+	if userType == "sender" {
+		filterField = "sender_id"
+		filterMessage = "Outgoing transactions retrieved successfully"
+	} else {
+		filterField = "recipient_id"
+		filterMessage = "Incoming transactions retrieved successfully"
+	}
+
+	// Get total count for pagination info
+	var totalCount int64
+	countQuery := a.db.Model(&accountModel.AccountLedger{}).Where("is_delete = ? AND status_active = ?", 0, 1)
+	countQuery = countQuery.Where(filterField+" = ?", getUserRecord.ID)
+
+	// Apply date range filter
+	countQuery = countQuery.Where("created_at >= ? AND created_at <= ?", fromDate, toDate)
+
+	// Apply entry_type filter if provided
+	if entryType == "credit" {
+		countQuery = countQuery.Where("credit IS NOT NULL AND credit > 0")
+	} else if entryType == "debit" {
+		countQuery = countQuery.Where("debit IS NOT NULL AND debit > 0")
+	}
+
+	if err := countQuery.Count(&totalCount).Error; err != nil {
+		logger.Error("Database error while counting ledger entries", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
 	var ledgers []accountModel.AccountLedger
 	query := a.db.Model(&accountModel.AccountLedger{}).Where("is_delete = ? AND status_active = ?", 0, 1)
-	query = query.Where("recipient_id = ? OR sender_id = ?", getUserRecord.ID, getUserRecord.ID)
+	// Filter based on user_type parameter
+	query = query.Where(filterField+" = ?", getUserRecord.ID)
+
+	// Apply date range filter
+	query = query.Where("created_at >= ? AND created_at <= ?", fromDate, toDate)
+
+	// Apply entry_type filter if provided
+	if entryType == "credit" {
+		query = query.Where("credit IS NOT NULL AND credit > 0")
+	} else if entryType == "debit" {
+		query = query.Where("debit IS NOT NULL AND debit > 0")
+	}
+
+	// Add pagination
+	query = query.Offset(offset).Limit(perPage)
+
+	// Add ordering (newest first)
+	query = query.Order("created_at DESC")
+
+	// Preload related data to populate Sender, Recipient, Organization, etc.
+	query = query.Preload("Sender").Preload("Recipient").Preload("Organization").Preload("Approver").Preload("ToAccountRef").Preload("FromAccountRef")
+
+	// Execute the query
+	if err := query.Find(&ledgers).Error; err != nil {
+		logger.Error("Database error while fetching ledger entries", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Internal server error",
+		})
+	}
+
+	// Enrich ledger data with account numbers
+	for i := range ledgers {
+		// Add ToAccount number if ToAccount ID exists
+		if ledgers[i].ToAccount != nil {
+			var toAccount accountModel.Account
+			if err := a.db.Select("account_number").Where("id = ?", *ledgers[i].ToAccount).First(&toAccount).Error; err == nil {
+				ledgers[i].ToAccountRef = &toAccount
+			}
+		}
+
+		// Add FromAccount number if FromAccount ID exists
+		if ledgers[i].FromAccount != nil {
+			var fromAccount accountModel.Account
+			if err := a.db.Select("account_number").Where("id = ?", *ledgers[i].FromAccount).First(&fromAccount).Error; err == nil {
+				ledgers[i].FromAccountRef = &fromAccount
+			}
+		}
+	}
+
+	// Calculate pagination info
+	totalPages := int((totalCount + int64(perPage) - 1) / int64(perPage))
+	hasNext := page < totalPages
+	hasPrev := page > 1
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"status":  "success",
-		"message": "Ledger entries retrieved successfully",
+		"message": filterMessage,
 		"data":    ledgers,
+		"filter": fiber.Map{
+			"user_type":  userType,
+			"from_date":  fromDate.Format(time.RFC3339),
+			"to_date":    toDate.Format(time.RFC3339),
+			"entry_type": entryType,
+		},
+		"pagination": fiber.Map{
+			"current_page": page,
+			"per_page":     perPage,
+			"total":        totalCount,
+			"total_pages":  totalPages,
+			"has_next":     hasNext,
+			"has_prev":     hasPrev,
+		},
 	})
 
 }
