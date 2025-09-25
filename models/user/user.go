@@ -29,9 +29,11 @@ type User struct {
 	CreatedByUser  *User `gorm:"foreignKey:CreatedByID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"created_by,omitempty"`
 	ApprovedByUser *User `gorm:"foreignKey:ApprovedByID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"approved_by,omitempty"`
 
-	CreatedAt time.Time  `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt *time.Time `gorm:"index" json:"deleted_at,omitempty"`
+	CreatedAt          time.Time         `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt          time.Time         `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt          *time.Time        `gorm:"index" json:"deleted_at,omitempty"`
+	PostOfficeBranchID *uint             `gorm:"index" json:"post_office_branch_id,omitempty"`
+	PostOfficeBranch   *PostOfficeBranch `gorm:"foreignKey:PostOfficeBranchID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"post_office_branch,omitempty"`
 }
 
 // StringSlice is a custom type to handle JSON serialization for PostgreSQL
