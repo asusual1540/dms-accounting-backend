@@ -3,67 +3,77 @@ package user
 import "time"
 
 type Division struct {
-	EnName string `gorm:"size:255;index"`
-	BnName string `gorm:"size:255;index"`
-	Slug   string `gorm:"size:127;index"`
+	ID     uint   `gorm:"primaryKey;autoIncrement" json:"id"`
+	EnName string `gorm:"size:255;index" json:"en_name"`
+	BnName string `gorm:"size:255;index" json:"bn_name"`
+	Slug   string `gorm:"size:127;index" json:"slug"`
 
-	Districts []District `gorm:"foreignKey:DivisionID"`
+	Districts []District `gorm:"foreignKey:DivisionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"districts,omitempty"`
 }
 
 type District struct {
-	DivisionID uint
-	Division   Division `gorm:"constraint:OnDelete:CASCADE;"`
+	ID         uint     `gorm:"primaryKey;autoIncrement" json:"id"`
+	DivisionID uint     `gorm:"index;not null" json:"division_id"`
+	Division   Division `gorm:"foreignKey:DivisionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"division,omitempty"`
 
-	EnName string `gorm:"size:255;index"`
-	BnName string `gorm:"size:255;index"`
-	Slug   string `gorm:"size:127;index"`
+	EnName string `gorm:"size:255;index" json:"en_name"`
+	BnName string `gorm:"size:255;index" json:"bn_name"`
+	Slug   string `gorm:"size:127;index" json:"slug"`
 
-	PoliceStations []PoliceStation `gorm:"foreignKey:DistrictID"`
+	PoliceStations []PoliceStation `gorm:"foreignKey:DistrictID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"police_stations,omitempty"`
 }
 
 type PoliceStation struct {
-	DistrictID uint
-	District   District `gorm:"constraint:OnDelete:CASCADE;"`
+	ID         uint     `gorm:"primaryKey;autoIncrement" json:"id"`
+	DistrictID uint     `gorm:"index;not null" json:"district_id"`
+	District   District `gorm:"foreignKey:DistrictID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"district,omitempty"`
 
-	EnName string `gorm:"size:255;index"`
-	BnName string `gorm:"size:255;index"`
-	Slug   string `gorm:"size:127;index"`
+	EnName string `gorm:"size:255;index" json:"en_name"`
+	BnName string `gorm:"size:255;index" json:"bn_name"`
+	Slug   string `gorm:"size:127;index" json:"slug"`
 
-	PostOffices []PostOffice `gorm:"foreignKey:PoliceStationID"`
+	PostOffices []PostOffice `gorm:"foreignKey:PoliceStationID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"post_offices,omitempty"`
 }
 
 type PostOffice struct {
-	PoliceStationID uint
-	PoliceStation   PoliceStation `gorm:"constraint:OnDelete:CASCADE;"`
+	ID              uint          `gorm:"primaryKey;autoIncrement" json:"id"`
+	PoliceStationID uint          `gorm:"index;not null" json:"police_station_id"`
+	PoliceStation   PoliceStation `gorm:"foreignKey:PoliceStationID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"police_station,omitempty"`
 
-	EnName   string `gorm:"size:255;index"`
-	BnName   string `gorm:"size:255;index"`
-	Slug     string `gorm:"size:127;index"`
-	PostCode string `gorm:"size:255;index"` // Postcode
+	EnName   string `gorm:"size:255;index" json:"en_name"`
+	BnName   string `gorm:"size:255;index" json:"bn_name"`
+	Slug     string `gorm:"size:127;index" json:"slug"`
+	PostCode string `gorm:"size:255;index" json:"post_code"` // Postcode
 
-	Branches []PostOfficeBranch `gorm:"foreignKey:PostOfficeID"`
+	Branches []PostOfficeBranch `gorm:"foreignKey:PostOfficeID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"branches,omitempty"`
 }
 
 type PostOfficeBranch struct {
-	PostOfficeID       *uint
-	PostOffice         *PostOffice `gorm:"constraint:OnDelete:SET NULL;"`
-	Slug               *string     `gorm:"size:127;index"`
-	BranchCode         *string     `gorm:"size:255;index"`
-	Circle             *string     `gorm:"size:255;index"`
-	CityPost           *string     `gorm:"size:50;index"`
-	ControlOffice      *string     `gorm:"size:100;index"`
-	Dept               *int
-	DirectTransportReq *string `gorm:"size:20;index"`
-	District           *string `gorm:"size:150;index"`
-	EmtsBranchCode     *string `gorm:"size:255;index"`
-	IsOpen             *string `gorm:"size:20;index"`
-	Name               *string `gorm:"size:255;index"`
-	EnName             *string `gorm:"size:255;index"`
-	BnName             *string `gorm:"size:255;index"`
-	RmsCode            *string `gorm:"size:255;index"`
-	Shift              *string `gorm:"size:20;index"`
-	Status             *string `gorm:"size:100;index"`
-	Upzilla            *string `gorm:"size:255;index"`
+	ID                 uint        `gorm:"primaryKey;autoIncrement" json:"id"`
+	PostOfficeID       *uint       `gorm:"index" json:"post_office_id,omitempty"`
+	PostOffice         *PostOffice `gorm:"foreignKey:PostOfficeID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"post_office,omitempty"`
+	Slug               *string     `gorm:"size:127;index" json:"slug,omitempty"`
+	BranchCode         *string     `gorm:"size:255;index" json:"branch_code,omitempty"`
+	Circle             *string     `gorm:"size:255;index" json:"circle,omitempty"`
+	CityPost           *string     `gorm:"size:50;index" json:"city_post,omitempty"`
+	ControlOffice      *string     `gorm:"size:100;index" json:"control_office,omitempty"`
+	Dept               *int        `json:"dept,omitempty"`
+	DirectTransportReq *string     `gorm:"size:20;index" json:"direct_transport_req,omitempty"`
+	District           *string     `gorm:"size:150;index" json:"district,omitempty"`
+	EmtsBranchCode     *string     `gorm:"size:255;index" json:"emts_branch_code,omitempty"`
+	IsOpen             *string     `gorm:"size:20;index" json:"is_open,omitempty"`
+	Name               *string     `gorm:"size:255;index" json:"name,omitempty"`
+	EnName             *string     `gorm:"size:255;index" json:"en_name,omitempty"`
+	BnName             *string     `gorm:"size:255;index" json:"bn_name,omitempty"`
+	RmsCode            *string     `gorm:"size:255;index" json:"rms_code,omitempty"`
+	Shift              *string     `gorm:"size:20;index" json:"shift,omitempty"`
+	Status             *string     `gorm:"size:100;index" json:"status,omitempty"`
+	Upzilla            *string     `gorm:"size:255;index" json:"upzilla,omitempty"`
+}
+
+// TableName specifies the table name for PostOfficeBranch
+func (PostOfficeBranch) TableName() string {
+	return "post_office_branches"
 }
 
 // Address represents sender or recipient address information
@@ -73,7 +83,7 @@ type Address struct {
 	DistrictID         *uint   `gorm:"size:255" json:"district,omitempty"`
 	PoliceStationID    *uint   `gorm:"size:255" json:"police_station,omitempty"`
 	PostOfficeID       *uint   `gorm:"size:255" json:"post_office_name,omitempty"`
-	PostOfficeBranchID *int    `json:"post_office_code,omitempty"`
+	PostOfficeBranchID *uint   `json:"post_office_code,omitempty"`
 	StreetAddress      *string `gorm:"size:255" json:"street_address,omitempty"`
 	Phone              *string `gorm:"size:255" json:"phone,omitempty"`
 

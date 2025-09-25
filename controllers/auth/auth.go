@@ -211,16 +211,17 @@ func ensurePersonalAccount(tx *gorm.DB) (*account.Account, error) {
 		logger.Info(fmt.Sprintf("Attempting to create account with number: %s (attempt %d/%d)", accountNumber, attempt+1, maxRetries))
 
 		acc := account.Account{
-			AccountNumber:  accountNumber,
-			CurrentBalance: 0.00,
-			AccountType:    "personal",
-			IsActive:       true,
-			IsLocked:       false,
-			CreatedAt:      ptrTime(time.Now()),
-			UpdatedAt:      ptrTime(time.Now()),
-			MaxLimit:       0.00,
-			BalanceType:    "",
-			Currency:       "BDT",
+			AccountNumber:   accountNumber,
+			CurrentBalance:  0.00,
+			AccountType:     "personal",
+			IsActive:        true,
+			IsLocked:        false,
+			CreatedAt:       ptrTime(time.Now()),
+			UpdatedAt:       ptrTime(time.Now()),
+			MaxLimit:        0.00,
+			BalanceType:     "",
+			Currency:        "BDT",
+			IsSystemAccount: false, // Personal accounts are not system accounts
 		}
 
 		res := tx.
@@ -371,6 +372,20 @@ func (h *AuthController) Login(c *fiber.Ctx) error {
 			if loginResp.Data.Email != nil && *loginResp.Data.Email != "" {
 				u.Email = loginResp.Data.Email // pointer ok
 			}
+
+			// Handle branch_code if provided
+			if loginResp.Data.BranchCode != nil && *loginResp.Data.BranchCode != "" {
+				var postOfficeBranch user.PostOfficeBranch
+				if err := tx.Where("branch_code = ?", *loginResp.Data.BranchCode).First(&postOfficeBranch).Error; err == nil {
+					u.PostOfficeBranchID = &postOfficeBranch.ID
+					logger.Info(fmt.Sprintf("Found PostOfficeBranch with code %s, assigned to user %s", *loginResp.Data.BranchCode, uid))
+				} else if errors.Is(err, gorm.ErrRecordNotFound) {
+					logger.Warning(fmt.Sprintf("PostOfficeBranch with code %s not found for user %s", *loginResp.Data.BranchCode, uid))
+				} else {
+					logger.Error(fmt.Sprintf("Error finding PostOfficeBranch with code %s", *loginResp.Data.BranchCode), err)
+				}
+			}
+
 			if err := tx.Save(&u).Error; err != nil {
 				return fmt.Errorf("update user by uuid failed: %w", err)
 			}
@@ -399,6 +414,20 @@ func (h *AuthController) Login(c *fiber.Ctx) error {
 				if loginResp.Data.Email != nil && *loginResp.Data.Email != "" {
 					u.Email = loginResp.Data.Email
 				}
+
+				// Handle branch_code if provided
+				if loginResp.Data.BranchCode != nil && *loginResp.Data.BranchCode != "" {
+					var postOfficeBranch user.PostOfficeBranch
+					if err := tx.Where("branch_code = ?", *loginResp.Data.BranchCode).First(&postOfficeBranch).Error; err == nil {
+						u.PostOfficeBranchID = &postOfficeBranch.ID
+						logger.Info(fmt.Sprintf("Found PostOfficeBranch with code %s, assigned to user %s", *loginResp.Data.BranchCode, uid))
+					} else if errors.Is(err, gorm.ErrRecordNotFound) {
+						logger.Warning(fmt.Sprintf("PostOfficeBranch with code %s not found for user %s", *loginResp.Data.BranchCode, uid))
+					} else {
+						logger.Error(fmt.Sprintf("Error finding PostOfficeBranch with code %s", *loginResp.Data.BranchCode), err)
+					}
+				}
+
 				if err := tx.Save(&u).Error; err != nil {
 					return fmt.Errorf("merge user by phone failed: %w", err)
 				}
@@ -425,6 +454,19 @@ func (h *AuthController) Login(c *fiber.Ctx) error {
 		}
 		if loginResp.Data.LegalName != nil {
 			nu.LegalName = *loginResp.Data.LegalName
+		}
+
+		// Handle branch_code if provided
+		if loginResp.Data.BranchCode != nil && *loginResp.Data.BranchCode != "" {
+			var postOfficeBranch user.PostOfficeBranch
+			if err := tx.Where("branch_code = ?", *loginResp.Data.BranchCode).First(&postOfficeBranch).Error; err == nil {
+				nu.PostOfficeBranchID = &postOfficeBranch.ID
+				logger.Info(fmt.Sprintf("Found PostOfficeBranch with code %s, assigned to new user %s", *loginResp.Data.BranchCode, uid))
+			} else if errors.Is(err, gorm.ErrRecordNotFound) {
+				logger.Warning(fmt.Sprintf("PostOfficeBranch with code %s not found for new user %s", *loginResp.Data.BranchCode, uid))
+			} else {
+				logger.Error(fmt.Sprintf("Error finding PostOfficeBranch with code %s for new user", *loginResp.Data.BranchCode), err)
+			}
 		}
 
 		// Create with "ON CONFLICT DO NOTHING" to swallow rare races; then fetch by uuid

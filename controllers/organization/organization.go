@@ -227,7 +227,7 @@ func (o *OrganizationController) CreateOrganizationInfo(c *fiber.Ctx) error {
 			DistrictID         *uint   `json:"district_id,omitempty"`
 			PoliceStationID    *uint   `json:"police_station_id,omitempty"`
 			PostOfficeID       *uint   `json:"post_office_id,omitempty"`
-			PostOfficeBranchID *int    `json:"post_office_branch_id,omitempty"`
+			PostOfficeBranchID *uint   `json:"post_office_branch_id,omitempty"`
 			StreetAddress      *string `json:"street_address,omitempty"`
 			Phone              *string `json:"phone,omitempty"`
 		} `json:"address,omitempty"`
