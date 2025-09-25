@@ -96,7 +96,7 @@ func autoMigrate() error {
 		&organization.Organization{},
 		&organization.OrganizationInfo{},
 		&organization.OrganizationUser{},
-		&account.OrganizationAccount{},
+		&account.AccountOwner{},
 	}
 
 	for _, model := range stage1Models {
@@ -108,11 +108,6 @@ func autoMigrate() error {
 	// Stage 2: Account table without FK constraints to itself
 	if err := DB.AutoMigrate(&account.Account{}); err != nil {
 		return fmt.Errorf("failed to migrate Account: %w", err)
-	}
-
-	// Stage 2.5: Add UserAaccount Table
-	if err := DB.AutoMigrate(&account.UserAccount{}); err != nil {
-		return fmt.Errorf("failed to migrate UserAccount: %w", err)
 	}
 	// Stage 3: Models that depend on Account but don't have circular dependencies
 	stage3Models := []interface{}{

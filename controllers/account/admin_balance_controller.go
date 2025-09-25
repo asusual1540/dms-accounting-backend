@@ -147,29 +147,50 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 		}
 
 		// Verify that the recipient owns this account or is associated with it
-		var userAccount accountModel.UserAccount
-		if err := tx.Where("user_id = ? AND account_id = ? AND is_active = ? AND is_delete = ?",
-			request.RecipientID, toAccount.ID, true, false).First(&userAccount).Error; err != nil {
+		var accountOwner accountModel.AccountOwner
+		if err := tx.Where("user_id = ? AND account_id = ?",
+			request.RecipientID, toAccount.ID).First(&accountOwner).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return fiber.NewError(fiber.StatusBadRequest, "Account does not belong to the specified recipient")
 			}
 			return err
 		}
 
-		// Create ledger entry for admin balance addition
-		ledger := accountModel.AccountLedger{
-			BillID:         nil, // No bill for admin balance addition
-			RecipientID:    request.RecipientID,
-			SenderID:       adminID, // admin who is adding the balance
-			OrganizationID: nil,     // No organization for admin balance addition
+		// Find or get the admin's account for proper double-entry bookkeeping
+		var adminAccount accountModel.Account
+		var adminAccountOwner accountModel.AccountOwner
+		if err := tx.Where("user_id = ?", adminID).First(&adminAccountOwner).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return fiber.NewError(fiber.StatusBadRequest, "Admin account not found. Admin must have an account to transfer funds.")
+			}
+			return err
+		}
+
+		// Load the admin account details
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", *adminAccountOwner.AccountID).First(&adminAccount).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Failed to load admin account details")
+		}
+
+		// Check if admin account has sufficient balance (optional - uncomment if you want to enforce this)
+		// if adminAccount.CurrentBalance < request.Amount {
+		//     return fiber.NewError(fiber.StatusBadRequest, "Admin account has insufficient balance")
+		// }
+
+		// Create debit ledger entry (money leaving admin account)
+		debitLedger := accountModel.AccountLedger{
+			BillID:         nil,
+			RecipientID:    adminID, // admin is the recipient of the debit record
+			SenderID:       adminID, // admin is initiating the transfer
+			OrganizationID: nil,
 			Reference:      request.Reference,
-			Credit:         &request.Amount,
+			Debit:          &request.Amount, // debit from admin account
 			IsAutoVerified: true,
 			StatusActive:   1,
 			IsDelete:       0,
-			ToAccount:      &toAccount.ID,
-			FromAccount:    &toAccount.ID, // same account for balance addition
-			ApprovalStatus: 1,             // auto approved by admin
+			ToAccount:      &toAccount.ID,    // destination account (user's account)
+			FromAccount:    &adminAccount.ID, // source account (admin's account)
+			ApprovalStatus: 1,
 			ApprovedBy:     &adminID,
 			ApprovedAt:     ptrTime(time.Now()),
 			VerifiedBy:     &adminID,
@@ -178,10 +199,42 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 			UpdatedAt:      ptrTime(time.Now()),
 		}
 
-		if err := tx.Create(&ledger).Error; err != nil {
+		if err := tx.Create(&debitLedger).Error; err != nil {
 			return err
 		}
-		newLedger = ledger
+
+		// Create credit ledger entry (money entering user account)
+		creditLedger := accountModel.AccountLedger{
+			BillID:         nil,
+			RecipientID:    request.RecipientID, // user receiving the credit
+			SenderID:       adminID,             // admin is sending the money
+			OrganizationID: nil,
+			Reference:      request.Reference,
+			Credit:         &request.Amount, // credit to user account
+			IsAutoVerified: true,
+			StatusActive:   1,
+			IsDelete:       0,
+			ToAccount:      &toAccount.ID,    // destination account (user's account)
+			FromAccount:    &adminAccount.ID, // source account (admin's account)
+			ApprovalStatus: 1,
+			ApprovedBy:     &adminID,
+			ApprovedAt:     ptrTime(time.Now()),
+			VerifiedBy:     &adminID,
+			VerifiedAt:     ptrTime(time.Now()),
+			CreatedAt:      time.Now(),
+			UpdatedAt:      ptrTime(time.Now()),
+		}
+
+		if err := tx.Create(&creditLedger).Error; err != nil {
+			return err
+		}
+		newLedger = creditLedger // Use credit ledger for response
+
+		// Update admin account balance (subtract the amount)
+		adminAccount.CurrentBalance -= request.Amount
+		if err := tx.Save(&adminAccount).Error; err != nil {
+			return err
+		}
 
 		// Update account balance
 		newBalance := toAccount.CurrentBalance + request.Amount

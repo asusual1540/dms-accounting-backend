@@ -9,41 +9,34 @@ import (
 type Account struct {
 	ID uint `gorm:"primaryKey;autoIncrement"`
 
-	AccountNumber  string  `gorm:"size:19;unique;Index;not null"`
-	CurrentBalance float64 `gorm:"type:decimal(10,2);default:0.00"`
-	AccountType    string  `gorm:"size:250;not null"` // personal, organizational, corporate
-	IsActive       bool    `gorm:"default:true"`
-	IsLocked       bool    `gorm:"default:false"`
-	CreatedAt      *time.Time
-	UpdatedAt      *time.Time
-	MaxLimit       float64 `gorm:"type:decimal(10,2);default:0.00"`
-	BalanceType    string  `gorm:"size:255"`
-	Currency       string  `gorm:"size:3;default:'BDT'"`
+	AccountNumber   string  `gorm:"size:19;unique;Index;not null"`
+	CurrentBalance  float64 `gorm:"type:decimal(10,2);default:0.00"`
+	AccountType     string  `gorm:"size:250;not null"` // personal, organizational, corporate
+	IsActive        bool    `gorm:"default:true"`
+	IsLocked        bool    `gorm:"default:false"`
+	CreatedAt       *time.Time
+	UpdatedAt       *time.Time
+	MaxLimit        float64 `gorm:"type:decimal(10,2);default:0.00"`
+	BalanceType     string  `gorm:"size:255"`
+	Currency        string  `gorm:"size:3;default:'BDT'"`
+	IsSystemAccount bool    `gorm:"default:false"`
 
 	FromBalances []AccountLedger `gorm:"foreignKey:FromAccount;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 	ToBalances   []AccountLedger `gorm:"foreignKey:ToAccount;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 }
 
-type UserAccount struct {
-	ID        uint `gorm:"primaryKey;autoIncrement"`
-	UserID    uint `gorm:"uniqueIndex;not null"`
-	AccountID uint `gorm:"index;not null"`
-
-	CreatedBy uint  `gorm:"index;not null"`
-	UpdatedBy *uint `gorm:"index"`
-
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"`
-
-	IsActive bool `gorm:"default:true"`
-	IsDelete bool `gorm:"default:false"`
+type AccountOwner struct {
+	ID                 uint  `gorm:"primaryKey;autoIncrement"`
+	UserID             *uint `gorm:"index;not null"`
+	AccountID          *uint `gorm:"index;not null"`
+	OrgID              *uint `gorm:"index;not null"`
+	PostOfficeBranchID *uint `gorm:"index"`
 
 	// Relationships
-	User    user.User `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
-	Account Account   `gorm:"foreignKey:AccountID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
-
-	CreatedByUser user.User `gorm:"foreignKey:CreatedBy;constraint:OnUpdate:CASCADE,OnDelete:SET NULL"`
-	UpdatedByUser user.User `gorm:"foreignKey:UpdatedBy;constraint:OnUpdate:CASCADE,OnDelete:SET NULL"`
+	User             user.User                 `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
+	Account          Account                   `gorm:"foreignKey:AccountID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
+	Org              organization.Organization `gorm:"foreignKey:OrgID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
+	PostOfficeBranch user.PostOfficeBranch     `gorm:"foreignKey:PostOfficeBranchID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
 }
 
 type PostPaidBill struct {
@@ -117,16 +110,4 @@ type LedgerUpdateDocument struct {
 	UpdatedAt       *time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 
 	AccountLedger AccountLedger `gorm:"foreignKey:AccountLedgerID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"account_ledger"`
-}
-type OrganizationAccount struct {
-	ID             uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	OrganizationID uint      `gorm:"not null;index" json:"organization_id"`
-	AccountID      uint      `gorm:"not null;index" json:"account_id"`
-	CreatedAt      time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt      time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-	IsActive       bool      `gorm:"not null;default:true" json:"is_active"`
-	IsDeleted      bool      `gorm:"not null;default:false" json:"is_deleted"`
-
-	Organization organization.Organization `gorm:"foreignKey:OrganizationID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"organization"`
-	Account      Account                   `gorm:"foreignKey:AccountID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"account"`
 }

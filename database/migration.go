@@ -83,12 +83,11 @@ func getRegisteredModels() []ModelInfo {
 		&user.Address{},
 		&organization.Organization{},
 		&organization.OrganizationInfo{},
-		&account.OrganizationAccount{},
+		&account.AccountOwner{},
 		&organization.OrganizationUser{},
 
 		// Account models
 		&account.Account{},
-		&account.UserAccount{},
 		&account.AccountLedger{},
 		&account.LedgerUpdateDocument{},
 		&account.PostPaidBill{},

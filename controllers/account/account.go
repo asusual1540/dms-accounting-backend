@@ -72,9 +72,9 @@ func (a *AccountController) CreateAccount(c *fiber.Ctx) error {
 		}
 
 		// Check if account already exists for this user in the org
-		var existingAccount accountModel.OrganizationAccount
-		if err := tx.Where("organization_id = ?", existingOrg.ID).
-			First(&existingAccount).Error; err == nil {
+		var existingAccountOwner accountModel.AccountOwner
+		if err := tx.Where("user_id = ? AND org_id = ?", existingUser.ID, existingOrg.ID).
+			First(&existingAccountOwner).Error; err == nil {
 			return fiber.NewError(fiber.StatusBadRequest, "Account already exists for this user in this organization")
 		} else if err != gorm.ErrRecordNotFound {
 			return err
@@ -97,16 +97,13 @@ func (a *AccountController) CreateAccount(c *fiber.Ctx) error {
 			return err
 		}
 
-		accountOrgUser := accountModel.OrganizationAccount{
-			OrganizationID: existingOrg.ID,
-			AccountID:      account.ID,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			IsActive:       true,
-			IsDeleted:      false,
+		accountOwner := accountModel.AccountOwner{
+			UserID:    &existingUser.ID,
+			AccountID: &account.ID,
+			OrgID:     &existingOrg.ID,
 		}
 
-		if err := tx.Create(&accountOrgUser).Error; err != nil {
+		if err := tx.Create(&accountOwner).Error; err != nil {
 			return err
 		}
 
@@ -136,8 +133,8 @@ func (a *AccountController) CreateAccount(c *fiber.Ctx) error {
 }
 
 func (a *AccountController) GetAccounts(c *fiber.Ctx) error {
-	var accounts []accountModel.OrganizationAccount
-	if err := database.DB.Preload("Account").Preload("Organization").Find(&accounts).Error; err != nil {
+	var accountOwners []accountModel.AccountOwner
+	if err := database.DB.Preload("Account").Preload("Org").Preload("User").Find(&accountOwners).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"status":  "error",
 			"message": "Failed to retrieve accounts",
@@ -148,7 +145,7 @@ func (a *AccountController) GetAccounts(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"status":  "success",
 		"message": "Accounts retrieved successfully",
-		"data":    accounts,
+		"data":    accountOwners,
 	})
 }
 
@@ -162,9 +159,9 @@ func (a *AccountController) GetAccount(c *fiber.Ctx) error {
 		})
 	}
 
-	var orgAccount accountModel.OrganizationAccount
-	if err := database.DB.Preload("Account").Preload("Organization").
-		Where("account_id = ?", accountID).First(&orgAccount).Error; err != nil {
+	var accountOwner accountModel.AccountOwner
+	if err := database.DB.Preload("Account").Preload("Org").Preload("User").
+		Where("account_id = ?", accountID).First(&accountOwner).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"status":  "error",
@@ -181,7 +178,7 @@ func (a *AccountController) GetAccount(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"status":  "success",
 		"message": "Account retrieved successfully",
-		"data":    orgAccount,
+		"data":    accountOwner,
 	})
 }
 
@@ -449,11 +446,11 @@ func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
 		})
 	}
 
-	// Find UserAccount by user ID
-	var debitUserAccount accountModel.UserAccount
-	if err := a.db.Where("user_id = ?", debitUserRecord.ID).First(&debitUserAccount).Error; err != nil {
+	// Find AccountOwner by user ID
+	var debitAccountOwner accountModel.AccountOwner
+	if err := a.db.Where("user_id = ?", debitUserRecord.ID).First(&debitAccountOwner).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			logger.Error(fmt.Sprintf("UserAccount not found for user ID: %d", debitUserRecord.ID), err)
+			logger.Error(fmt.Sprintf("AccountOwner not found for user ID: %d", debitUserRecord.ID), err)
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"status":  "error",
 				"message": "User account not found",
@@ -468,7 +465,7 @@ func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
 
 	// Find Account details by account ID
 	var debitUseraccountRecord accountModel.Account
-	if err := a.db.Where("id = ?", debitUserAccount.AccountID).First(&debitUseraccountRecord).Error; err != nil {
+	if err := a.db.Where("id = ?", *debitAccountOwner.AccountID).First(&debitUseraccountRecord).Error; err != nil {
 		logger.Error("Database error while fetching account details", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"status":  "error",
@@ -513,10 +510,10 @@ func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
 		})
 	}
 
-	var recipientUserAccount accountModel.UserAccount
-	if err := a.db.Where("user_id = ?", recipientUserRecord.ID).First(&recipientUserAccount).Error; err != nil {
+	var recipientAccountOwner accountModel.AccountOwner
+	if err := a.db.Where("user_id = ?", recipientUserRecord.ID).First(&recipientAccountOwner).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			logger.Error(fmt.Sprintf("Recipient UserAccount not found for user ID: %d", recipientUserRecord.ID), err)
+			logger.Error(fmt.Sprintf("Recipient AccountOwner not found for user ID: %d", recipientUserRecord.ID), err)
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"status":  "error",
 				"message": "Recipient user account not found",
@@ -529,7 +526,7 @@ func (a *AccountController) OperatorDebit(c *fiber.Ctx) error {
 		})
 	}
 	var recipientAccountRecord accountModel.Account
-	if err := a.db.Where("id = ?", recipientUserAccount.AccountID).First(&recipientAccountRecord).Error; err != nil {
+	if err := a.db.Where("id = ?", *recipientAccountOwner.AccountID).First(&recipientAccountRecord).Error; err != nil {
 		logger.Error("Database error while fetching recipient account details", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"status":  "error",
@@ -1144,9 +1141,9 @@ func (a *AccountController) GetAllAccountsByOrganizationID(c *fiber.Ctx) error {
 		})
 	}
 
-	var orgAccounts []accountModel.OrganizationAccount
-	if err := database.DB.Preload("Account").Preload("Organization").
-		Where("organization_id = ?", orgID).Find(&orgAccounts).Error; err != nil {
+	var accountOwners []accountModel.AccountOwner
+	if err := database.DB.Preload("Account").Preload("Org").Preload("User").
+		Where("org_id = ?", orgID).Find(&accountOwners).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"status":  "error",
 			"message": "Failed to retrieve organization accounts",
@@ -1157,7 +1154,7 @@ func (a *AccountController) GetAllAccountsByOrganizationID(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"status":  "success",
 		"message": "Organization accounts retrieved successfully",
-		"data":    orgAccounts,
+		"data":    accountOwners,
 	})
 }
 
@@ -1993,27 +1990,17 @@ func (a *AccountController) GetUserAccount(c *fiber.Ctx) error {
 		})
 	}
 
-	// Find UserAccount by user ID
-	var userAccount accountModel.UserAccount
-	if err := a.db.Where("user_id = ?", userRecord.ID).First(&userAccount).Error; err != nil {
+	// Find AccountOwner by user ID
+	var accountOwner accountModel.AccountOwner
+	if err := a.db.Preload("Account").Preload("Org").Where("user_id = ?", userRecord.ID).First(&accountOwner).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			logger.Error(fmt.Sprintf("UserAccount not found for user ID: %d", userRecord.ID), err)
+			logger.Error(fmt.Sprintf("AccountOwner not found for user ID: %d", userRecord.ID), err)
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"status":  "error",
 				"message": "User account not found",
 			})
 		}
 		logger.Error("Database error while fetching user account", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"status":  "error",
-			"message": "Internal server error",
-		})
-	}
-
-	// Find Account details by account ID
-	var accountRecord accountModel.Account
-	if err := a.db.Where("id = ?", userAccount.AccountID).First(&accountRecord).Error; err != nil {
-		logger.Error("Database error while fetching account details", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"status":  "error",
 			"message": "Internal server error",
@@ -2033,25 +2020,22 @@ func (a *AccountController) GetUserAccount(c *fiber.Ctx) error {
 			"email_verified": userRecord.EmailVerified,
 		},
 		"account_info": fiber.Map{
-			"id":              accountRecord.ID,
-			"account_number":  accountRecord.AccountNumber,
-			"current_balance": accountRecord.CurrentBalance,
-			"account_type":    accountRecord.AccountType,
-			"is_active":       accountRecord.IsActive,
-			"is_locked":       accountRecord.IsLocked,
-			"max_limit":       accountRecord.MaxLimit,
-			"balance_type":    accountRecord.BalanceType,
-			"currency":        accountRecord.Currency,
-			"created_at":      accountRecord.CreatedAt,
-			"updated_at":      accountRecord.UpdatedAt,
+			"id":              accountOwner.Account.ID,
+			"account_number":  accountOwner.Account.AccountNumber,
+			"current_balance": accountOwner.Account.CurrentBalance,
+			"account_type":    accountOwner.Account.AccountType,
+			"is_active":       accountOwner.Account.IsActive,
+			"is_locked":       accountOwner.Account.IsLocked,
+			"max_limit":       accountOwner.Account.MaxLimit,
+			"balance_type":    accountOwner.Account.BalanceType,
+			"currency":        accountOwner.Account.Currency,
+			"created_at":      accountOwner.Account.CreatedAt,
+			"updated_at":      accountOwner.Account.UpdatedAt,
 		},
-		"user_account_info": fiber.Map{
-			"id":         userAccount.ID,
-			"created_by": userAccount.CreatedBy,
-			"updated_by": userAccount.UpdatedBy,
-			"is_active":  userAccount.IsActive,
-			"created_at": userAccount.CreatedAt,
-			"updated_at": userAccount.UpdatedAt,
+		"account_owner_info": fiber.Map{
+			"id":      accountOwner.ID,
+			"user_id": accountOwner.UserID,
+			"org_id":  accountOwner.OrgID,
 		},
 	}
 
