@@ -80,6 +80,11 @@ func getRegisteredModels() []ModelInfo {
 	models := []interface{}{
 		// Core models
 		&user.User{},
+		&user.Division{},
+		&user.District{},
+		&user.PoliceStation{},
+		&user.PostOffice{},
+		&user.PostOfficeBranch{},
 		&user.Address{},
 		&organization.Organization{},
 		&organization.OrganizationInfo{},
@@ -155,13 +160,19 @@ func extractForeignKeyRelationships(modelType reflect.Type, fields *[]FieldInfo,
 	// Map to store table name mappings for different models
 	tableNameMap := map[string]string{
 		"User":                 "users",
+		"Division":             "divisions",
+		"District":             "districts",
+		"PoliceStation":        "police_stations",
+		"PostOffice":           "post_offices",
+		"PostOfficeBranch":     "post_office_branches", // Use correct custom table name
+		"Address":              "addresses",
 		"Organization":         "organizations",
 		"OrganizationInfo":     "organization_infos",
 		"Account":              "accounts",
+		"AccountOwner":         "account_owners",
 		"AccountUser":          "account_users",
 		"AccountLedger":        "account_ledgers",
 		"LedgerUpdateDocument": "ledger_update_documents",
-		"Address":              "addresses",
 		"ResponseTime":         "response_times",
 		"ResponseTimeEvent":    "response_time_events",
 		"Log":                  "logs",

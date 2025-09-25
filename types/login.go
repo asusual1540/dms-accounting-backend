@@ -49,6 +49,7 @@ type UserLoginData struct {
 	Permissions   []string        `json:"permissions"`
 	Refresh       string          `json:"refresh"`
 	Access        string          `json:"access"`
+	BranchCode    *string         `json:"branch_code,omitempty"` // New field for post office branch
 }
 
 // custom error message

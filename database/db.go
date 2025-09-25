@@ -82,6 +82,12 @@ func InitDB() (*gorm.DB, error) {
 	}
 	logger.Success("All indexes created successfully")
 
+	// Seed initial data
+	if err := SeedData(DB); err != nil {
+		logger.Error("Failed to seed initial data", err)
+		return nil, err
+	}
+
 	return DB, nil
 }
 
@@ -92,6 +98,10 @@ func autoMigrate() error {
 	// Stage 1: Core foundation models
 	stage1Models := []interface{}{
 		&user.User{},
+		&user.District{},
+		&user.PoliceStation{},
+		&user.PostOffice{},
+		&user.PostOfficeBranch{},
 		&user.Address{},
 		&organization.Organization{},
 		&organization.OrganizationInfo{},

@@ -222,14 +222,14 @@ func (o *OrganizationController) CreateOrganizationInfo(c *fiber.Ctx) error {
 		Website        *string `json:"website,omitempty"`
 		AddressID      *uint   `json:"address_id,omitempty"`
 		Address        *struct {
-			ID             *uint   `json:"id,omitempty"`
-			Name           *string `json:"name,omitempty"`
-			District       *string `json:"district,omitempty"`
-			UpazilaThana   *string `json:"upazila_thana,omitempty"`
-			PostOfficeName *string `json:"post_office_name,omitempty"`
-			PostOfficeCode *int    `json:"post_office_code,omitempty"`
-			StreetAddress  *string `json:"street_address,omitempty"`
-			Phone          *string `json:"phone,omitempty"`
+			ID                 *uint   `json:"id,omitempty"`
+			Name               *string `json:"name,omitempty"`
+			DistrictID         *uint   `json:"district_id,omitempty"`
+			PoliceStationID    *uint   `json:"police_station_id,omitempty"`
+			PostOfficeID       *uint   `json:"post_office_id,omitempty"`
+			PostOfficeBranchID *uint   `json:"post_office_branch_id,omitempty"`
+			StreetAddress      *string `json:"street_address,omitempty"`
+			Phone              *string `json:"phone,omitempty"`
 		} `json:"address,omitempty"`
 		Industry      *string    `json:"industry,omitempty"`
 		EmployeeCount *int       `json:"employee_count,omitempty"`
@@ -381,10 +381,10 @@ func (o *OrganizationController) CreateOrganizationInfo(c *fiber.Ctx) error {
 
 		// Set address fields
 		address.Name = req.Address.Name
-		address.District = req.Address.District
-		address.UpazilaThana = req.Address.UpazilaThana
-		address.PostOfficeName = req.Address.PostOfficeName
-		address.PostOfficeCode = req.Address.PostOfficeCode
+		address.DistrictID = req.Address.DistrictID
+		address.PoliceStationID = req.Address.PoliceStationID
+		address.PostOfficeID = req.Address.PostOfficeID
+		address.PostOfficeBranchID = req.Address.PostOfficeBranchID
 		address.StreetAddress = req.Address.StreetAddress
 		address.Phone = req.Address.Phone
 
