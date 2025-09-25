@@ -11,3 +11,9 @@ type Address struct {
 	StreetAddress  *string `gorm:"size:255" json:"street_address,omitempty"`
 	Phone          *string `gorm:"size:255" json:"phone,omitempty"`
 }
+
+type PostOfficeBranch struct {
+	ID       uint   `gorm:"primaryKey;autoIncrement" json:"id"`
+	Name     string `gorm:"size:255;not null" json:"name"`
+	PostCode int    `json:"post_code"`
+}

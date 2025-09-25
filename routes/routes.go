@@ -22,6 +22,8 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	authController := auth.NewAuthController(ssoClient, db, asyncLogger)
 	orgController := organization.NewOrganizationController(db, asyncLogger)
 	accountController := account.NewAccountController(db, asyncLogger)
+	selfCreditController := account.NewSelfCreditController(db, asyncLogger)
+	adminBalanceController := account.NewAdminBalanceController(db, asyncLogger)
 
 	// Start the async logger processing goroutine
 	go asyncLogger.ProcessLog()
@@ -137,7 +139,17 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	accountingGroup.Post("/operatorDebit", middleware.RequirePermissions(
 		constants.PermDMSAccountingoperatorFull,
 	), accountController.OperatorDebit)
-
+	accountingGroup.Post("/self-credit", middleware.RequirePermissions(
+		constants.PermEkdakDPMGFull,
+		constants.PermEkdakSuperAdminFull,
+		constants.PermCorporateDPMGFull,
+		constants.PermDMSAccountingSuperAdminFull,
+		constants.PermDMSAccountingDPMGFull,
+		constants.PermDMSAccountingPostmasterFull,
+	), selfCreditController.SelfCredit)
+	accountingGroup.Post("/admin-add-balance", middleware.RequirePermissions(
+		constants.PermDMSAccountingDPMGFull,
+	), adminBalanceController.AddBalance)
 	accountingGroup.Post("/operatorDebitbill", middleware.RequirePermissions(
 		constants.PermDMSAccountingoperatorFull,
 	), accountController.OperatorDebitbill)

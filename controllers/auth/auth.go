@@ -252,19 +252,28 @@ func ensurePersonalAccount(tx *gorm.DB) (*account.Account, error) {
 
 // EnsureUserAccount: user_id এর জন্য UserAccount থাকলে ফেরত দেয়,
 // না থাকলে নতুন Account বানিয়ে map করে দেয়।
-func EnsureUserAccount(tx *gorm.DB, userID uint) (*account.UserAccount, error) {
-	var ua account.UserAccount
+func EnsureUserAccount(tx *gorm.DB, userID uint) (*account.AccountOwner, error) {
+	// For backward compatibility, we'll use org_id = 1 as default
+	// This should be updated based on your business logic
+	defaultOrgID := uint(1)
+	return EnsureAccountOwner(tx, userID, defaultOrgID)
+}
 
-	// Check if UserAccount already exists
-	if err := tx.Where("user_id = ?", userID).First(&ua).Error; err == nil {
-		logger.Info(fmt.Sprintf("Found existing UserAccount for user_id: %d", userID))
-		return &ua, nil
+// EnsureAccountOwner: user_id এর জন্য AccountOwner থাকলে ফেরত দেয়,
+// না থাকলে নতুন Account বানিয়ে map করে দেয়।
+func EnsureAccountOwner(tx *gorm.DB, userID uint, orgID uint) (*account.AccountOwner, error) {
+	var accountOwner account.AccountOwner
+
+	// Check if AccountOwner already exists
+	if err := tx.Where("user_id = ? AND org_id = ?", userID, orgID).First(&accountOwner).Error; err == nil {
+		logger.Info(fmt.Sprintf("Found existing AccountOwner for user_id: %d, org_id: %d", userID, orgID))
+		return &accountOwner, nil
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		logger.Error(fmt.Sprintf("Error querying UserAccount for user_id %d", userID), err)
+		logger.Error(fmt.Sprintf("Error querying AccountOwner for user_id %d, org_id %d", userID, orgID), err)
 		return nil, err
 	}
 
-	logger.Info(fmt.Sprintf("No existing UserAccount found for user_id: %d, creating new one", userID))
+	logger.Info(fmt.Sprintf("No existing AccountOwner found for user_id: %d, org_id: %d, creating new one", userID, orgID))
 
 	// Create a fresh Account
 	acc, err := ensurePersonalAccount(tx)
@@ -272,22 +281,20 @@ func EnsureUserAccount(tx *gorm.DB, userID uint) (*account.UserAccount, error) {
 		return nil, fmt.Errorf("ensurePersonalAccount failed: %w", err)
 	}
 
-	// Create UserAccount - simple insert since we already checked it doesn't exist
-	ua = account.UserAccount{
-		UserID:    userID,
-		AccountID: acc.ID,
-		CreatedBy: userID, // Set CreatedBy to the same user who owns the account
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+	// Create AccountOwner - simple insert since we already checked it doesn't exist
+	accountOwner = account.AccountOwner{
+		UserID:    &userID,
+		AccountID: &acc.ID,
+		OrgID:     &orgID,
 	}
 
-	if err := tx.Create(&ua).Error; err != nil {
-		logger.Error(fmt.Sprintf("Failed to create UserAccount for user_id %d", userID), err)
+	if err := tx.Create(&accountOwner).Error; err != nil {
+		logger.Error(fmt.Sprintf("Failed to create AccountOwner for user_id %d, org_id %d", userID, orgID), err)
 		return nil, err
 	}
 
-	logger.Success(fmt.Sprintf("Successfully created UserAccount: user_id=%d, account_id=%d", ua.UserID, ua.AccountID))
-	return &ua, nil
+	logger.Success(fmt.Sprintf("Successfully created AccountOwner: user_id=%d, account_id=%d, org_id=%d", *accountOwner.UserID, *accountOwner.AccountID, *accountOwner.OrgID))
+	return &accountOwner, nil
 }
 
 // ---- Full Login ------------------------------------------------------------
