@@ -35,3 +35,7 @@ go.work.sum
 Thumbs.db
 
 *uploads/
+
+.dockerignore
+Dockerfile
+docker-compose.yaml
