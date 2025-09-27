@@ -42,6 +42,8 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	api.Post("/get-service-token", authController.GetServiceToken)
 	api.Post("/login", authController.Login)
 
+	api.Post("/land", authController.Land)
+
 	/*=============================================================================
 	| Protected Routes
 	===============================================================================*/
