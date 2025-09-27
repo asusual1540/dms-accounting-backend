@@ -13,20 +13,20 @@ import (
 func SeedData(db *gorm.DB) error {
 	logger.Success("🌱 Starting database seeding...")
 
-	// // Seed default organization
-	// if err := seedDefaultOrganization(db); err != nil {
-	// 	return err
-	// }
+	// Seed default organization
+	if err := seedDefaultOrganization(db); err != nil {
+		return err
+	}
 
-	// // Seed address data from JSON files
-	// if err := SeedAddressDataFromJSON(db); err != nil {
-	// 	return err
-	// }
+	// Seed address data from JSON files
+	if err := SeedAddressDataFromJSON(db); err != nil {
+		return err
+	}
 
-	// // Seed system accounts for post office branches
-	// if err := SeedSystemAccountsForPostOfficeBranches(db); err != nil {
-	// 	return err
-	// }
+	// Seed system accounts for post office branches
+	if err := SeedSystemAccountsForPostOfficeBranches(db); err != nil {
+		return err
+	}
 
 	logger.Success("✅ Database seeding completed successfully")
 	return nil
