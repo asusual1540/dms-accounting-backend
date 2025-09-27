@@ -109,6 +109,21 @@ func (a *AccountController) GetLatestBillEvents(billID uint, eventTypes []string
 	return result
 }
 
+// Helper function to get all events for a bill
+func (a *AccountController) GetAllBillEvents(billID uint) []accountModel.PostPaidBillEvent {
+	var events []accountModel.PostPaidBillEvent
+
+	err := a.db.Where("post_paid_bill_id = ?", billID).
+		Order("event_time DESC").
+		Find(&events).Error
+
+	if err != nil {
+		return []accountModel.PostPaidBillEvent{}
+	}
+
+	return events
+}
+
 // Helper function to get bill status based on events (optimized version)
 func (a *AccountController) GetBillStatus(billID uint) fiber.Map {
 	eventTypes := []string{"sent", "paid", "approved"}
@@ -3535,7 +3550,7 @@ func (a *AccountController) GetUserAccount(c *fiber.Ctx) error {
 }
 
 /*==================================================================================================================
-| Get PostPaid Bills List with Pagination and Filtering
+| Get PostPaid Bills List with Pagination and Filtering - Admin Route (Only Sent Bills)
 ===================================================================================================================*/
 
 func (a *AccountController) GetPostPaidBillList(c *fiber.Ctx) error {
@@ -3711,6 +3726,9 @@ func (a *AccountController) GetPostPaidBillList(c *fiber.Ctx) error {
 
 	// Filter out soft deleted records
 	query = query.Where("is_delete = ?", 0)
+
+	// Filter out inactive bills (only show active bills)
+	query = query.Where("is_active = ?", 1)
 
 	// Get total count for pagination
 	var totalCount int64
@@ -4296,6 +4314,7 @@ func (a *AccountController) MarkBillAsSent(c *fiber.Ctx) error {
 	// Update the bill and create "sent" event
 	now := time.Now()
 	bill.UpdatedAt = now
+	bill.IsActive = 1
 
 	err := a.db.Transaction(func(tx *gorm.DB) error {
 		// Update bill timestamp

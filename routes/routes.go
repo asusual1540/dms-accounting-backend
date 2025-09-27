@@ -137,7 +137,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	accountingGroup := api.Group("/v1")
 	accountingGroup.Post("/operatorDebit", middleware.RequirePermissions(
-		constants.PermDMSAccountingoperatorFull,
+		constants.PermDMSAccountingOperatorFull,
 	), accountController.OperatorDebit)
 
 	accountingGroup.Post("/self-credit", middleware.RequirePermissions(
@@ -154,7 +154,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	), adminBalanceController.AddBalance)
 
 	accountingGroup.Post("/operatorDebitbill", middleware.RequirePermissions(
-		constants.PermDMSAccountingoperatorFull,
+		constants.PermDMSAccountingOperatorFull,
 	), accountController.OperatorDebitbill)
 
 	accountingGroup.Post("/postPaidBillReceive", middleware.RequirePermissions(
@@ -169,7 +169,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	accountingGroup.Get("/account-ledger-list", middleware.RequirePermissions(
 		constants.PermDMSAccountingDPMGFull,
 		constants.PermDMSAccountingPostmasterFull,
-		constants.PermDMSAccountingoperatorFull,
+		constants.PermDMSAccountingOperatorFull,
 	), accountController.GetAccountLedgerList)
 
 	// PostPaid Bills List with pagination and filtering
@@ -180,12 +180,12 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	// Operator-specific PostPaid Bills List (only bills where operator is sender)
 	accountingGroup.Get("/operator-postpaid-bills", middleware.RequirePermissions(
-		constants.PermDMSAccountingoperatorFull,
+		constants.PermDMSAccountingOperatorFull,
 	), accountController.GetOperatorPostPaidBillList)
 
 	// Mark PostPaid Bill as Sent by Operator
 	accountingGroup.Post("/mark-bill-sent", middleware.RequirePermissions(
-		constants.PermDMSAccountingoperatorFull,
+		constants.PermDMSAccountingOperatorFull,
 	), accountController.MarkBillAsSent)
 
 	// Get System account by brance code
@@ -193,7 +193,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 		constants.PermDMSAccountingDPMGFull,
 		constants.PermEkdakSuperAdminFull,
 		constants.PermDMSAccountingPostmasterFull,
-		constants.PermDMSAccountingoperatorFull,
+		constants.PermDMSAccountingOperatorFull,
 	), accountController.GetSystemAccountByBranchCode)
 
 	/*accountingGroup.Get("/account-ledger/:id", middleware.RequirePermissions(

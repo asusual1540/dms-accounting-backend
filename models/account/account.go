@@ -61,6 +61,7 @@ type PostPaidBill struct {
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 
 	IsDelete int `gorm:"default:0"`
+	IsActive int `gorm:"default:0"`
 
 	// Relationships
 	SenderAccount   *Account `gorm:"foreignKey:SenderAccountID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`
