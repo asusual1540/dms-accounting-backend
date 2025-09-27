@@ -1971,6 +1971,117 @@ func (a *AccountController) GetAccountLedgerList(c *fiber.Ctx) error {
 	})
 }
 
+/*==================================================================================================================
+| End Get Account ledger with Debit
+===================================================================================================================*/
+
+/*
+	==================================================================================================================
+
+| Get System Account List by branch code
+*/
+func (a *AccountController) GetSystemAccountByBranchCode(c *fiber.Ctx) error {
+	branchCode := c.Query("branch_code")
+
+	// --- Pagination params (validated) ---
+	page := c.QueryInt("page", 1)
+	perPage := c.QueryInt("per_page", 20)
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 20
+	}
+	offset := (page - 1) * perPage
+
+	// --- If branch_code is provided, resolve matching branch IDs ---
+	var branchIDs []uint
+	if branchCode != "" {
+		var branches []user.PostOfficeBranch
+		if err := a.db.
+			Where("branch_code = ?", branchCode).
+			Find(&branches).Error; err != nil {
+
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"status":  "error",
+				"message": "Database error (branches)",
+			})
+		}
+		if len(branches) == 0 {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status":  "error",
+				"message": "Branch not found",
+			})
+		}
+		branchIDs = make([]uint, 0, len(branches))
+		for _, b := range branches {
+			branchIDs = append(branchIDs, b.ID)
+		}
+	}
+
+	// --- Base query on AccountOwner with eager-loaded Account ---
+	base := a.db.Model(&accountModel.AccountOwner{}).
+		Preload("Account").
+		Where("account_id IS NOT NULL") // ensure has related Account
+
+	if len(branchIDs) > 0 {
+		base = base.Where("post_office_branch_id IN ?", branchIDs)
+	}
+
+	// --- Count total (for pagination meta) ---
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Failed to count accounts",
+		})
+	}
+
+	// --- Fetch paginated rows ---
+	var accounts []accountModel.AccountOwner
+	if err := base.
+		Order("id DESC").
+		Limit(perPage).
+		Offset(offset).
+		Find(&accounts).Error; err != nil {
+
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"status":  "error",
+			"message": "Failed to fetch accounts",
+		})
+	}
+
+	// --- Transform (optional: keep only fields you want) ---
+	trimmed := make([]accountModel.AccountOwner, len(accounts))
+	for i, acc := range accounts {
+		trimmed[i] = accountModel.AccountOwner{
+			ID:                 acc.ID,
+			UserID:             acc.UserID,
+			AccountID:          acc.AccountID,
+			PostOfficeBranchID: acc.PostOfficeBranchID,
+			Account:            acc.Account, // include details
+		}
+	}
+
+	// --- Pagination meta ---
+	totalPages := int((total + int64(perPage) - 1) / int64(perPage))
+	hasNext := page < totalPages
+	hasPrev := page > 1
+
+	return c.JSON(fiber.Map{
+		"status": "success",
+		"data":   trimmed,
+		"pagination": fiber.Map{
+			"current_page": page,
+			"per_page":     perPage,
+			"total":        total,
+			"total_pages":  totalPages,
+			"has_next":     hasNext,
+			"has_prev":     hasPrev,
+		},
+	})
+}
+
 func (a *AccountController) Debit(c *fiber.Ctx) error {
 	userInfo := c.Locals("user").(map[string]interface{})
 	permissions := c.Locals("permissions").([]string)
