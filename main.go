@@ -60,8 +60,10 @@ func main() {
 	// Use new consolidated routes
 	routes.SetupRoutes(app, db)
 
-	app_host := os.Getenv("APP_HOST")
-	app_port := os.Getenv("APP_PORT")
+	app_host := "0.0.0.0"
+	// app_host := os.Getenv("APP_HOST")
+	app_port := "8004"
+	// app_port := os.Getenv("APP_PORT")
 	app.Listen(app_host + ":" + app_port)
 	// Additional application code can follow...
 }
