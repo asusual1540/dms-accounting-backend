@@ -6,6 +6,11 @@ type LoginRequest struct {
 	Password    string `json:"password"`
 }
 
+type LandRequest struct {
+	Access  string `json:"access"` // Field to allow login via email or phone
+	Refresh string `json:"refresh"`
+}
+
 type ErrorResponse struct {
 	Message string `json:"message"`
 	Status  int    `json:"status"`
@@ -62,6 +67,18 @@ func (r LoginRequest) Validate() string {
 	// Validate password
 	if r.Password == "" {
 		return "Password is required"
+	}
+	return ""
+}
+func (r LandRequest) Validate() string {
+	// Ensure that login identifier is provided (either email or phone)
+	if r.Access == "" {
+		return "Access token is required"
+	}
+
+	// Validate refresh token
+	if r.Refresh == "" {
+		return "Refresh token is required"
 	}
 	return ""
 }

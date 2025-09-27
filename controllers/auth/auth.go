@@ -4,12 +4,14 @@ import (
 	"dms-accounting/database"
 	httpServices "dms-accounting/httpServices/sso"
 	"dms-accounting/logger"
+	sso "dms-accounting/middleware"
 	"dms-accounting/models/account"
 	"dms-accounting/models/user"
 	"dms-accounting/types"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"strings"
@@ -769,121 +771,542 @@ func (h *AuthController) Login(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(loginResp)
 }
 
-//func (h *AuthController) Login(c *fiber.Ctx) error {
-//	var req types.LoginRequest
-//	if err := c.BodyParser(&req); err != nil {
-//		logger.Error("Error parsing request body", err)
-//		response := types.ApiResponse{
-//			Message: fmt.Errorf("Error parsing request body: %v", err).Error(),
-//			Status:  fiber.StatusBadRequest,
-//			Data:    nil,
-//		}
-//		return c.Status(fiber.StatusBadRequest).JSON(response)
-//	}
-//
-//	// Validate request
-//	if validationError := req.Validate(); validationError != "" {
-//		logger.Error(validationError, nil)
-//		response := types.ApiResponse{
-//			Message: validationError,
-//			Status:  fiber.StatusBadRequest,
-//			Data:    nil,
-//		}
-//		return c.Status(fiber.StatusBadRequest).JSON(response)
-//	}
-//
-//	// Make call to external API through the service
-//	loginResponse, err := h.httpService.RequestLoginUser(types.LoginRequest{
-//		PhoneNumber: req.PhoneNumber,
-//		Redirect:    req.Redirect,
-//		Password:    req.Password,
-//	})
-//	if err != nil {
-//		logger.Error("Failed to login user", err)
-//		return c.Status(fiber.StatusBadGateway).JSON(types.ApiResponse{
-//			Message: "Failed to login user",
-//			Status:  fiber.StatusBadGateway,
-//		})
-//	}
-//
-//	currentTime := time.Now().Format("2006-01-02 03:04:05 PM")
-//
-//	// Check if user exists in local database, create if not exists
-//	if loginResponse.Status == "success" && loginResponse.Data.UUID != "" {
-//		var existingUser user.User
-//		result := database.DB.Where("uuid = ?", loginResponse.Data.UUID).First(&existingUser)
-//
-//		if result.Error != nil {
-//			// User doesn't exist, create new user
-//			newUser := user.User{
-//				Uuid:          loginResponse.Data.UUID,
-//				Username:      loginResponse.Data.Username,
-//				Phone:         loginResponse.Data.Phone,
-//				PhoneVerified: loginResponse.Data.PhoneVerified,
-//				EmailVerified: loginResponse.Data.EmailVerified,
-//				Avatar:        loginResponse.Data.Avatar,
-//				Nonce:         loginResponse.Data.Nonce,
-//				Permissions:   user.StringSlice(loginResponse.Data.Permissions),
-//			}
-//
-//			// Handle nullable fields
-//			if loginResponse.Data.LegalName != nil {
-//				newUser.LegalName = *loginResponse.Data.LegalName
-//			}
-//			if loginResponse.Data.Email != nil && *loginResponse.Data.Email != "" {
-//				newUser.Email = loginResponse.Data.Email
-//			}
-//			// Email remains nil if not provided or empty
-//
-//			// Handle CreatedBy and ApprovedBy if they exist in the response
-//			// For now, we'll just store the UUIDs if needed
-//			// You might want to implement logic to find and link existing users
-//
-//			// Create user in database
-//			if err := database.DB.Create(&newUser).Error; err != nil {
-//				logger.Error("Failed to create user in local database", err)
-//				// Continue with login even if local database sync fails
-//			} else {
-//				logger.Success("User created in local database successfully. UUID: " + newUser.Uuid)
-//			}
-//		} else {
-//			// User exists, optionally update their information
-//			fmt.Printf("User already exists in local database. UUID: %s\n", existingUser.Uuid)
-//		}
-//	}
-//
-//	// Set HTTP-only secure cookies for access and refresh tokens
-//	if loginResponse.Access != "" {
-//		h.setSecureCookie(c, "access", loginResponse.Access, 8*60*60) // 8 hours
-//	}
-//
-//	if loginResponse.Refresh != "" {
-//		h.setSecureCookie(c, "refresh", loginResponse.Refresh, 7*24*60*60) // 7 days
-//	}
-//
-//	// Marshal loginResponse to JSON string for logging
-//	responseBodyStr := ""
-//	if loginResponse != nil {
-//		if b, err := json.Marshal(loginResponse); err == nil {
-//			responseBodyStr = string(b)
-//		}
-//	}
-//
-//	logEntry := types.LogEntry{
-//		Method:          c.Method(),
-//		URL:             c.OriginalURL(),
-//		RequestBody:     string(c.Body()),
-//		ResponseBody:    responseBodyStr,
-//		RequestHeaders:  string(c.Request().Header.Header()),
-//		ResponseHeaders: string(c.Response().Header.Header()),
-//		StatusCode:      c.Response().StatusCode(),
-//		CreatedAt:       time.Now(),
-//	}
-//	h.loggerInstance.Log(logEntry)
-//
-//	logger.Success("User logged in successfully. uuid: " + loginResponse.Data.UUID + " at " + currentTime)
-//	return c.Status(fiber.StatusOK).JSON(loginResponse)
-//}
+// ---- Full Land ------------------------------------------------------------
+func (h *AuthController) Land(c *fiber.Ctx) error {
+	// 1) Parse & validate
+	var req types.LandRequest
+	if err := c.BodyParser(&req); err != nil {
+		logger.Error("Error parsing request body", err)
+		return c.Status(fiber.StatusBadRequest).JSON(types.ApiResponse{
+			Message: fmt.Errorf("Error parsing request body: %v", err).Error(),
+			Status:  fiber.StatusBadRequest,
+			Data:    nil,
+		})
+	}
+	if v := req.Validate(); v != "" {
+		logger.Error(v, nil)
+		return c.Status(fiber.StatusBadRequest).JSON(types.ApiResponse{
+			Message: v,
+			Status:  fiber.StatusBadRequest,
+			Data:    nil,
+		})
+	}
+
+	// 2) Verify JWT and extract claims
+	claims, err := sso.VerifyJWT(req.Access)
+	log.Println("Verifying JWT token...", claims)
+	if err != nil {
+		log.Printf("JWT verification failed: %v", err)
+		return c.Status(fiber.StatusUnauthorized).JSON(types.ApiResponse{
+			Message: "Invalid or expired token",
+			Status:  fiber.StatusUnauthorized,
+			Data:    nil,
+		})
+	}
+	fmt.Println("Verified JWT claims:", claims)
+
+	// 3) Extract user data from claims
+	uid, ok := claims["uuid"].(string)
+	if !ok || strings.TrimSpace(uid) == "" {
+		logger.Error("UUID not found in JWT claims", nil)
+		return c.Status(fiber.StatusBadRequest).JSON(types.ApiResponse{
+			Message: "Invalid token: UUID missing",
+			Status:  fiber.StatusBadRequest,
+			Data:    nil,
+		})
+	}
+
+	nowStr := time.Now().Format("2006-01-02 03:04:05 PM")
+
+	// 4) Upsert user + EnsureUserAccount in one transaction (similar to login logic)
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		var u user.User
+
+		// (A) Try by UUID (fast path: update)
+		if err := tx.Where("uuid = ?", uid).First(&u).Error; err == nil {
+			// User exists, update fields from JWT claims
+			if username, ok := claims["username"].(string); ok {
+				u.Username = username
+			}
+			if phone, ok := claims["phone"].(string); ok {
+				u.Phone = phone
+			}
+			if phoneVerified, ok := claims["phone_verified"].(bool); ok {
+				u.PhoneVerified = phoneVerified
+			}
+			if emailVerified, ok := claims["email_verified"].(bool); ok {
+				u.EmailVerified = emailVerified
+			}
+			if avatar, ok := claims["avatar"].(string); ok {
+				u.Avatar = avatar
+			}
+			if nonce, ok := claims["nonce"].(float64); ok {
+				u.Nonce = int(nonce)
+			}
+			if legalName, ok := claims["legal_name"].(string); ok && legalName != "" {
+				u.LegalName = legalName
+			}
+			if email := claims["email"]; email != nil {
+				if emailStr, ok := email.(string); ok && emailStr != "" {
+					u.Email = &emailStr
+				}
+			}
+			if permissions, ok := claims["permissions"].([]interface{}); ok {
+				var permStrings []string
+				for _, p := range permissions {
+					if pStr, ok := p.(string); ok {
+						permStrings = append(permStrings, pStr)
+					}
+				}
+				u.Permissions = user.StringSlice(permStrings)
+			}
+
+			// Handle branch_code if provided
+			if branchCode, ok := claims["branch_code"].(string); ok && branchCode != "" {
+				var postOfficeBranch user.PostOfficeBranch
+				if err := tx.Where("branch_code = ?", branchCode).First(&postOfficeBranch).Error; err == nil {
+					u.PostOfficeBranchID = &postOfficeBranch.ID
+					logger.Info(fmt.Sprintf("Found PostOfficeBranch with code %s, assigned to user %s", branchCode, uid))
+				} else if errors.Is(err, gorm.ErrRecordNotFound) {
+					logger.Warning(fmt.Sprintf("PostOfficeBranch with code %s not found for user %s", branchCode, uid))
+				} else {
+					logger.Error(fmt.Sprintf("Error finding PostOfficeBranch with code %s", branchCode), err)
+				}
+
+				// Check if user has post-master or postmaster permissions
+				hasPostMasterPermission := false
+				if permissions, ok := claims["permissions"].([]interface{}); ok {
+					for _, permission := range permissions {
+						if pStr, ok := permission.(string); ok {
+							if strings.Contains(strings.ToLower(pStr), "post-master") || strings.Contains(strings.ToLower(pStr), "postmaster") {
+								hasPostMasterPermission = true
+								break
+							}
+						}
+					}
+				}
+
+				if hasPostMasterPermission {
+					// Create system account with S + BranchCode
+					systemAccountNumber := "S" + branchCode
+					logger.Info(fmt.Sprintf("User %s has post-master permission, creating/finding system account %s", uid, systemAccountNumber))
+
+					var systemAccount account.Account
+					// Try to find existing system account
+					if err := tx.Where("account_number = ?", systemAccountNumber).First(&systemAccount).Error; err != nil {
+						if errors.Is(err, gorm.ErrRecordNotFound) {
+							// Create new system account
+							systemAccount = account.Account{
+								AccountNumber:   systemAccountNumber,
+								CurrentBalance:  0.00,
+								AccountType:     "system",
+								IsActive:        true,
+								IsLocked:        false,
+								CreatedAt:       ptrTime(time.Now()),
+								UpdatedAt:       ptrTime(time.Now()),
+								MaxLimit:        0.00,
+								BalanceType:     "system",
+								Currency:        "BDT",
+								IsSystemAccount: true,
+							}
+							if err := tx.Create(&systemAccount).Error; err != nil {
+								logger.Error(fmt.Sprintf("Failed to create system account %s", systemAccountNumber), err)
+							} else {
+								logger.Success(fmt.Sprintf("Created system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+							}
+						} else {
+							logger.Error(fmt.Sprintf("Error finding system account %s", systemAccountNumber), err)
+						}
+					} else {
+						logger.Info(fmt.Sprintf("Found existing system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+					}
+
+					// Find or create AccountOwner for the system account
+					if systemAccount.ID > 0 {
+						var systemAccountOwner account.AccountOwner
+						if err := tx.Where("account_id = ?", systemAccount.ID).First(&systemAccountOwner).Error; err != nil {
+							if errors.Is(err, gorm.ErrRecordNotFound) {
+								// Create new AccountOwner
+								defaultOrgID := uint(1) // Use default org ID
+								systemAccountOwner = account.AccountOwner{
+									UserID:             &u.ID,
+									AccountID:          &systemAccount.ID,
+									OrgID:              &defaultOrgID,
+									PostOfficeBranchID: u.PostOfficeBranchID,
+								}
+								if err := tx.Create(&systemAccountOwner).Error; err != nil {
+									logger.Error(fmt.Sprintf("Failed to create AccountOwner for system account %s", systemAccountNumber), err)
+								} else {
+									logger.Success(fmt.Sprintf("Created AccountOwner for system account %s, assigned to user %s", systemAccountNumber, uid))
+								}
+							} else {
+								logger.Error(fmt.Sprintf("Error finding AccountOwner for system account %s", systemAccountNumber), err)
+							}
+						} else {
+							// AccountOwner exists, check if UserID is empty and assign if needed
+							if systemAccountOwner.UserID == nil {
+								systemAccountOwner.UserID = &u.ID
+								systemAccountOwner.PostOfficeBranchID = u.PostOfficeBranchID
+								if err := tx.Save(&systemAccountOwner).Error; err != nil {
+									logger.Error(fmt.Sprintf("Failed to assign user to AccountOwner for system account %s", systemAccountNumber), err)
+								} else {
+									logger.Success(fmt.Sprintf("Assigned user %s to existing AccountOwner for system account %s", uid, systemAccountNumber))
+								}
+							} else {
+								logger.Info(fmt.Sprintf("System account %s already has a UserID assigned", systemAccountNumber))
+							}
+						}
+					}
+				}
+			}
+
+			if err := tx.Save(&u).Error; err != nil {
+				return fmt.Errorf("update user by uuid failed: %w", err)
+			}
+			if _, err := EnsureUserAccount(tx, u.ID); err != nil {
+				return fmt.Errorf("ensure user-account failed: %w", err)
+			}
+			return nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("query user by uuid failed: %w", err)
+		}
+
+		// (B) Not found by UUID → try by Phone (merge into existing record)
+		if phone, ok := claims["phone"].(string); ok && strings.TrimSpace(phone) != "" {
+			if err := tx.Where("phone = ?", phone).First(&u).Error; err == nil {
+				// Merge: attach SSO uuid + update fields
+				u.Uuid = uid
+				if username, ok := claims["username"].(string); ok {
+					u.Username = username
+				}
+				if phoneVerified, ok := claims["phone_verified"].(bool); ok {
+					u.PhoneVerified = phoneVerified
+				}
+				if emailVerified, ok := claims["email_verified"].(bool); ok {
+					u.EmailVerified = emailVerified
+				}
+				if avatar, ok := claims["avatar"].(string); ok {
+					u.Avatar = avatar
+				}
+				if nonce, ok := claims["nonce"].(float64); ok {
+					u.Nonce = int(nonce)
+				}
+				if legalName, ok := claims["legal_name"].(string); ok && legalName != "" {
+					u.LegalName = legalName
+				}
+				if email := claims["email"]; email != nil {
+					if emailStr, ok := email.(string); ok && emailStr != "" {
+						u.Email = &emailStr
+					}
+				}
+				if permissions, ok := claims["permissions"].([]interface{}); ok {
+					var permStrings []string
+					for _, p := range permissions {
+						if pStr, ok := p.(string); ok {
+							permStrings = append(permStrings, pStr)
+						}
+					}
+					u.Permissions = user.StringSlice(permStrings)
+				}
+
+				// Handle branch_code if provided
+				if branchCode, ok := claims["branch_code"].(string); ok && branchCode != "" {
+					var postOfficeBranch user.PostOfficeBranch
+					if err := tx.Where("branch_code = ?", branchCode).First(&postOfficeBranch).Error; err == nil {
+						u.PostOfficeBranchID = &postOfficeBranch.ID
+						logger.Info(fmt.Sprintf("Found PostOfficeBranch with code %s, assigned to user %s", branchCode, uid))
+					} else if errors.Is(err, gorm.ErrRecordNotFound) {
+						logger.Warning(fmt.Sprintf("PostOfficeBranch with code %s not found for user %s", branchCode, uid))
+					} else {
+						logger.Error(fmt.Sprintf("Error finding PostOfficeBranch with code %s", branchCode), err)
+					}
+
+					// Check if user has post-master or postmaster permissions
+					hasPostMasterPermission := false
+					if permissions, ok := claims["permissions"].([]interface{}); ok {
+						for _, permission := range permissions {
+							if pStr, ok := permission.(string); ok {
+								if strings.Contains(strings.ToLower(pStr), "post-master") || strings.Contains(strings.ToLower(pStr), "postmaster") {
+									hasPostMasterPermission = true
+									break
+								}
+							}
+						}
+					}
+
+					if hasPostMasterPermission {
+						// Create system account with S + BranchCode
+						systemAccountNumber := "S" + branchCode
+						logger.Info(fmt.Sprintf("User %s has post-master permission, creating/finding system account %s", uid, systemAccountNumber))
+
+						var systemAccount account.Account
+						// Try to find existing system account
+						if err := tx.Where("account_number = ?", systemAccountNumber).First(&systemAccount).Error; err != nil {
+							if errors.Is(err, gorm.ErrRecordNotFound) {
+								// Create new system account
+								systemAccount = account.Account{
+									AccountNumber:   systemAccountNumber,
+									CurrentBalance:  0.00,
+									AccountType:     "system",
+									IsActive:        true,
+									IsLocked:        false,
+									CreatedAt:       ptrTime(time.Now()),
+									UpdatedAt:       ptrTime(time.Now()),
+									MaxLimit:        0.00,
+									BalanceType:     "system",
+									Currency:        "BDT",
+									IsSystemAccount: true,
+								}
+								if err := tx.Create(&systemAccount).Error; err != nil {
+									logger.Error(fmt.Sprintf("Failed to create system account %s", systemAccountNumber), err)
+								} else {
+									logger.Success(fmt.Sprintf("Created system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+								}
+							} else {
+								logger.Error(fmt.Sprintf("Error finding system account %s", systemAccountNumber), err)
+							}
+						} else {
+							logger.Info(fmt.Sprintf("Found existing system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+						}
+
+						// Find or create AccountOwner for the system account
+						if systemAccount.ID > 0 {
+							var systemAccountOwner account.AccountOwner
+							if err := tx.Where("account_id = ?", systemAccount.ID).First(&systemAccountOwner).Error; err != nil {
+								if errors.Is(err, gorm.ErrRecordNotFound) {
+									// Create new AccountOwner
+									defaultOrgID := uint(1) // Use default org ID
+									systemAccountOwner = account.AccountOwner{
+										UserID:             &u.ID,
+										AccountID:          &systemAccount.ID,
+										OrgID:              &defaultOrgID,
+										PostOfficeBranchID: u.PostOfficeBranchID,
+									}
+									if err := tx.Create(&systemAccountOwner).Error; err != nil {
+										logger.Error(fmt.Sprintf("Failed to create AccountOwner for system account %s", systemAccountNumber), err)
+									} else {
+										logger.Success(fmt.Sprintf("Created AccountOwner for system account %s, assigned to user %s", systemAccountNumber, uid))
+									}
+								} else {
+									logger.Error(fmt.Sprintf("Error finding AccountOwner for system account %s", systemAccountNumber), err)
+								}
+							} else {
+								// AccountOwner exists, check if UserID is empty and assign if needed
+								if systemAccountOwner.UserID == nil {
+									systemAccountOwner.UserID = &u.ID
+									systemAccountOwner.PostOfficeBranchID = u.PostOfficeBranchID
+									if err := tx.Save(&systemAccountOwner).Error; err != nil {
+										logger.Error(fmt.Sprintf("Failed to assign user to AccountOwner for system account %s", systemAccountNumber), err)
+									} else {
+										logger.Success(fmt.Sprintf("Assigned user %s to existing AccountOwner for system account %s", uid, systemAccountNumber))
+									}
+								} else {
+									logger.Info(fmt.Sprintf("System account %s already has a UserID assigned", systemAccountNumber))
+								}
+							}
+						}
+					}
+				}
+
+				if err := tx.Save(&u).Error; err != nil {
+					return fmt.Errorf("merge user by phone failed: %w", err)
+				}
+				if _, err := EnsureUserAccount(tx, u.ID); err != nil {
+					return fmt.Errorf("ensure user-account failed: %w", err)
+				}
+				return nil
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("query user by phone failed: %w", err)
+			}
+		}
+
+		// (C) Create new user (no uuid/phone match)
+		nu := user.User{
+			Uuid: uid,
+		}
+
+		// Populate fields from JWT claims
+		if username, ok := claims["username"].(string); ok {
+			nu.Username = username
+		}
+		if phone, ok := claims["phone"].(string); ok {
+			nu.Phone = phone
+		}
+		if phoneVerified, ok := claims["phone_verified"].(bool); ok {
+			nu.PhoneVerified = phoneVerified
+		}
+		if emailVerified, ok := claims["email_verified"].(bool); ok {
+			nu.EmailVerified = emailVerified
+		}
+		if avatar, ok := claims["avatar"].(string); ok {
+			nu.Avatar = avatar
+		}
+		if nonce, ok := claims["nonce"].(float64); ok {
+			nu.Nonce = int(nonce)
+		}
+		if legalName, ok := claims["legal_name"].(string); ok && legalName != "" {
+			nu.LegalName = legalName
+		}
+		if email := claims["email"]; email != nil {
+			if emailStr, ok := email.(string); ok && emailStr != "" {
+				nu.Email = &emailStr
+			}
+		}
+		if permissions, ok := claims["permissions"].([]interface{}); ok {
+			var permStrings []string
+			for _, p := range permissions {
+				if pStr, ok := p.(string); ok {
+					permStrings = append(permStrings, pStr)
+				}
+			}
+			nu.Permissions = user.StringSlice(permStrings)
+		}
+
+		// Handle branch_code if provided
+		if branchCode, ok := claims["branch_code"].(string); ok && branchCode != "" {
+			var postOfficeBranch user.PostOfficeBranch
+			if err := tx.Where("branch_code = ?", branchCode).First(&postOfficeBranch).Error; err == nil {
+				nu.PostOfficeBranchID = &postOfficeBranch.ID
+				logger.Info(fmt.Sprintf("Found PostOfficeBranch with code %s, assigned to new user %s", branchCode, uid))
+			} else if errors.Is(err, gorm.ErrRecordNotFound) {
+				logger.Warning(fmt.Sprintf("PostOfficeBranch with code %s not found for new user %s", branchCode, uid))
+			} else {
+				logger.Error(fmt.Sprintf("Error finding PostOfficeBranch with code %s for new user", branchCode), err)
+			}
+		}
+
+		// Create with "ON CONFLICT DO NOTHING" to swallow rare races; then fetch by uuid
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&nu).Error; err != nil {
+			return fmt.Errorf("create user failed: %w", err)
+		}
+		// Fetch back (covers DoNothing case)
+		if err := tx.Where("uuid = ?", uid).First(&nu).Error; err != nil {
+			return fmt.Errorf("fetch created user failed: %w", err)
+		}
+
+		// Handle post-master system account creation after user is created and has ID
+		if branchCode, ok := claims["branch_code"].(string); ok && branchCode != "" {
+			// Check if user has post-master or postmaster permissions
+			hasPostMasterPermission := false
+			if permissions, ok := claims["permissions"].([]interface{}); ok {
+				for _, permission := range permissions {
+					if pStr, ok := permission.(string); ok {
+						if strings.Contains(strings.ToLower(pStr), "post-master") || strings.Contains(strings.ToLower(pStr), "postmaster") {
+							hasPostMasterPermission = true
+							break
+						}
+					}
+				}
+			}
+
+			if hasPostMasterPermission {
+				// Create system account with S + BranchCode
+				systemAccountNumber := "S" + branchCode
+				logger.Info(fmt.Sprintf("New user %s has post-master permission, creating/finding system account %s", uid, systemAccountNumber))
+
+				var systemAccount account.Account
+				// Try to find existing system account
+				if err := tx.Where("account_number = ?", systemAccountNumber).First(&systemAccount).Error; err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						// Create new system account
+						systemAccount = account.Account{
+							AccountNumber:   systemAccountNumber,
+							CurrentBalance:  0.00,
+							AccountType:     "system",
+							IsActive:        true,
+							IsLocked:        false,
+							CreatedAt:       ptrTime(time.Now()),
+							UpdatedAt:       ptrTime(time.Now()),
+							MaxLimit:        0.00,
+							BalanceType:     "system",
+							Currency:        "BDT",
+							IsSystemAccount: true,
+						}
+						if err := tx.Create(&systemAccount).Error; err != nil {
+							logger.Error(fmt.Sprintf("Failed to create system account %s", systemAccountNumber), err)
+						} else {
+							logger.Success(fmt.Sprintf("Created system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+						}
+					} else {
+						logger.Error(fmt.Sprintf("Error finding system account %s", systemAccountNumber), err)
+					}
+				} else {
+					logger.Info(fmt.Sprintf("Found existing system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+				}
+
+				// Find or create AccountOwner for the system account
+				if systemAccount.ID > 0 {
+					var systemAccountOwner account.AccountOwner
+					if err := tx.Where("account_id = ?", systemAccount.ID).First(&systemAccountOwner).Error; err != nil {
+						if errors.Is(err, gorm.ErrRecordNotFound) {
+							// Create new AccountOwner
+							defaultOrgID := uint(1) // Use default org ID
+							systemAccountOwner = account.AccountOwner{
+								UserID:             &nu.ID,
+								AccountID:          &systemAccount.ID,
+								OrgID:              &defaultOrgID,
+								PostOfficeBranchID: nu.PostOfficeBranchID,
+							}
+							if err := tx.Create(&systemAccountOwner).Error; err != nil {
+								logger.Error(fmt.Sprintf("Failed to create AccountOwner for system account %s", systemAccountNumber), err)
+							} else {
+								logger.Success(fmt.Sprintf("Created AccountOwner for system account %s, assigned to new user %s", systemAccountNumber, uid))
+							}
+						} else {
+							logger.Error(fmt.Sprintf("Error finding AccountOwner for system account %s", systemAccountNumber), err)
+						}
+					} else {
+						// AccountOwner exists, check if UserID is empty and assign if needed
+						if systemAccountOwner.UserID == nil {
+							systemAccountOwner.UserID = &nu.ID
+							systemAccountOwner.PostOfficeBranchID = nu.PostOfficeBranchID
+							if err := tx.Save(&systemAccountOwner).Error; err != nil {
+								logger.Error(fmt.Sprintf("Failed to assign new user to AccountOwner for system account %s", systemAccountNumber), err)
+							} else {
+								logger.Success(fmt.Sprintf("Assigned new user %s to existing AccountOwner for system account %s", uid, systemAccountNumber))
+							}
+						} else {
+							logger.Info(fmt.Sprintf("System account %s already has a UserID assigned", systemAccountNumber))
+						}
+					}
+				}
+			}
+		}
+
+		if _, err := EnsureUserAccount(tx, nu.ID); err != nil {
+			return fmt.Errorf("ensure user-account failed: %w", err)
+		}
+		return nil
+	}); err != nil {
+		logger.Error("Land DB transaction failed", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(types.ApiResponse{
+			Message: "Token verified but local sync failed",
+			Status:  fiber.StatusInternalServerError,
+			Data:    nil,
+		})
+	}
+
+	// 5) Structured log
+	h.loggerInstance.Log(types.LogEntry{
+		Method:          c.Method(),
+		URL:             c.OriginalURL(),
+		RequestBody:     string(c.Body()),
+		ResponseBody:    `{"message": "Land successful", "status": 200}`,
+		RequestHeaders:  string(c.Request().Header.Header()),
+		ResponseHeaders: string(c.Response().Header.Header()),
+		StatusCode:      fiber.StatusOK,
+		CreatedAt:       time.Now(),
+	})
+
+	logger.Success("User landed successfully. uuid: " + uid + " at " + nowStr)
+	return c.Status(fiber.StatusOK).JSON(types.ApiResponse{
+		Message: "Land successful",
+		Status:  fiber.StatusOK,
+		Data: map[string]interface{}{
+			"uuid": uid,
+		},
+	})
+}
 
 func (h *AuthController) GetServiceToken(c *fiber.Ctx) error {
 	var req types.GetServiceTokenRequest
