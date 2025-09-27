@@ -14,4 +14,5 @@ RUN ls -lh main
 FROM alpine:latest
 WORKDIR /root/
 COPY --from=builder /app/main .
+COPY --from=builder /app/json_data/ ./json_data/
 CMD ["./main"]
