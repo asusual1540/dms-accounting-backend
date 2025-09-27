@@ -2021,8 +2021,10 @@ func (a *AccountController) GetSystemAccountByBranchCode(c *fiber.Ctx) error {
 
 	// --- Base query on AccountOwner with eager-loaded Account ---
 	base := a.db.Model(&accountModel.AccountOwner{}).
-		Preload("Account").
-		Where("account_id IS NOT NULL") // ensure has related Account
+		Joins("JOIN accounts ON accounts.id = account_owners.account_id").
+		Where("accounts.is_system_account = ?", true).
+		Where("account_owners.account_id IS NOT NULL").
+		Preload("Account")
 
 	if len(branchIDs) > 0 {
 		base = base.Where("post_office_branch_id IN ?", branchIDs)
