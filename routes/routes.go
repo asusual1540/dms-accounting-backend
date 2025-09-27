@@ -183,6 +183,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	// Operator-specific PostPaid Bills List (only bills where operator is sender)
 	accountingGroup.Get("/operator-postpaid-bills", middleware.RequirePermissions(
 		constants.PermDMSAccountingOperatorFull,
+		constants.PermDMSCounterFull,
 	), accountController.GetOperatorPostPaidBillList)
 
 	// Mark PostPaid Bill as Sent by Operator
