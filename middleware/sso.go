@@ -172,6 +172,11 @@ func hasPermission(jwtToken string, requiredPermissions []string) (map[string]in
 
 func IsAuthenticated(requiredPermissions []string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		// Allow preflight OPTIONS requests to pass through for CORS
+		if c.Method() == "OPTIONS" {
+			return c.Next()
+		}
+
 		//log.Printf("IsAuthenticated middleware called with permissions: %v", requiredPermissions)
 
 		authHeader := c.Get("Authorization")
