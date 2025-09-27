@@ -188,6 +188,14 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 		constants.PermDMSAccountingoperatorFull,
 	), accountController.MarkBillAsSent)
 
+	// Get System account by brance code
+	accountingGroup.Get("/system-account-list", middleware.RequirePermissions(
+		constants.PermDMSAccountingDPMGFull,
+		constants.PermEkdakSuperAdminFull,
+		constants.PermDMSAccountingPostmasterFull,
+		constants.PermDMSAccountingoperatorFull,
+	), accountController.GetSystemAccountByBranchCode)
+
 	/*accountingGroup.Get("/account-ledger/:id", middleware.RequirePermissions(
 		constants.PermDMSAccountingDPMGFull,
 		constants.PermDMSAccountingPostmasterFull,
