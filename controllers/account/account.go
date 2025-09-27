@@ -1796,25 +1796,44 @@ func (a *AccountController) GetAccountLedgerList(c *fiber.Ctx) error {
 
 	// Date filtering
 	if fromDateStr != "" {
-		fromDate, err := time.Parse("2006-01-02", fromDateStr)
-		if err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"status":  "error",
-				"message": "Invalid from_date format. Use YYYY-MM-DD",
-			})
+		var fromDate time.Time
+		var err error
+
+		// Try parsing with timestamp format first (YYYY-MM-DD+HH:MM:SS)
+		if fromDate, err = time.Parse("2006-01-02+15:04:05", fromDateStr); err != nil {
+			// Try parsing with space separator (YYYY-MM-DD HH:MM:SS) - URL decoded format
+			if fromDate, err = time.Parse("2006-01-02 15:04:05", fromDateStr); err != nil {
+				// If that fails, try the simple date format (YYYY-MM-DD)
+				if fromDate, err = time.Parse("2006-01-02", fromDateStr); err != nil {
+					return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+						"status":  "error",
+						"message": "Invalid from_date format. Use YYYY-MM-DD, YYYY-MM-DD+HH:MM:SS, or YYYY-MM-DD HH:MM:SS",
+					})
+				}
+			}
 		}
 		query = query.Where("created_at >= ?", fromDate)
 	}
 	if toDateStr != "" {
-		toDate, err := time.Parse("2006-01-02", toDateStr)
-		if err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"status":  "error",
-				"message": "Invalid to_date format. Use YYYY-MM-DD",
-			})
+		var toDate time.Time
+		var err error
+
+		// Try parsing with timestamp format first (YYYY-MM-DD+HH:MM:SS)
+		if toDate, err = time.Parse("2006-01-02+15:04:05", toDateStr); err != nil {
+			// Try parsing with space separator (YYYY-MM-DD HH:MM:SS) - URL decoded format
+			if toDate, err = time.Parse("2006-01-02 15:04:05", toDateStr); err != nil {
+				// If that fails, try the simple date format (YYYY-MM-DD)
+				if toDate, err = time.Parse("2006-01-02", toDateStr); err != nil {
+					return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+						"status":  "error",
+						"message": "Invalid to_date format. Use YYYY-MM-DD, YYYY-MM-DD+HH:MM:SS, or YYYY-MM-DD HH:MM:SS",
+					})
+				} else {
+					// If only date was provided, include the entire day by setting to end of day
+					toDate = toDate.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+				}
+			}
 		}
-		// Include the entire day by setting to end of day
-		toDate = toDate.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
 		query = query.Where("created_at <= ?", toDate)
 	}
 

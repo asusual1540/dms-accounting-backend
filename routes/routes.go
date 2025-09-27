@@ -140,6 +140,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	accountingGroup := api.Group("/v1")
 	accountingGroup.Post("/operatorDebit", middleware.RequirePermissions(
 		constants.PermDMSAccountingOperatorFull,
+		constants.PermDMSCounterFull,
 	), accountController.OperatorDebit)
 
 	accountingGroup.Post("/self-credit", middleware.RequirePermissions(
@@ -157,6 +158,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	accountingGroup.Post("/operatorDebitbill", middleware.RequirePermissions(
 		constants.PermDMSAccountingOperatorFull,
+		constants.PermDMSCounterFull,
 	), accountController.OperatorDebitbill)
 
 	accountingGroup.Post("/postPaidBillReceive", middleware.RequirePermissions(
@@ -172,6 +174,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 		constants.PermDMSAccountingDPMGFull,
 		constants.PermDMSAccountingPostmasterFull,
 		constants.PermDMSAccountingOperatorFull,
+		constants.PermDMSCounterFull,
 	), accountController.GetAccountLedgerList)
 
 	// PostPaid Bills List with pagination and filtering
@@ -189,6 +192,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	// Mark PostPaid Bill as Sent by Operator
 	accountingGroup.Post("/mark-bill-sent", middleware.RequirePermissions(
 		constants.PermDMSAccountingOperatorFull,
+		constants.PermDMSCounterFull,
 	), accountController.MarkBillAsSent)
 
 	// Get System account by brance code
@@ -197,6 +201,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 		constants.PermEkdakSuperAdminFull,
 		constants.PermDMSAccountingPostmasterFull,
 		constants.PermDMSAccountingOperatorFull,
+		constants.PermDMSCounterFull,
 	), accountController.GetSystemAccountByBranchCode)
 
 	/*accountingGroup.Get("/account-ledger/:id", middleware.RequirePermissions(

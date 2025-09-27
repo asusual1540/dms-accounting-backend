@@ -25,18 +25,18 @@ func InitDB() (*gorm.DB, error) {
 	}
 
 	// Get database configuration from environment variables
-	host := os.Getenv("POSTGRES_HOST")
-	port := os.Getenv("POSTGRES_PORT")
-	database := os.Getenv("POSTGRES_DB")
-	user := os.Getenv("POSTGRES_USER")
-	password := os.Getenv("POSTGRES_PASSWORD")
-	sslmode := os.Getenv("DB_SSLMODE") // Optional: "disable", "require", etc.
-	// host := os.Getenv("DB_HOST")
-	// port := os.Getenv("DB_PORT")
-	// database := os.Getenv("DB_DATABASE")
-	// user := os.Getenv("DB_USERNAME")
-	// password := os.Getenv("DB_PASSWORD")
+	// host := os.Getenv("POSTGRES_HOST")
+	// port := os.Getenv("POSTGRES_PORT")
+	// database := os.Getenv("POSTGRES_DB")
+	// user := os.Getenv("POSTGRES_USER")
+	// password := os.Getenv("POSTGRES_PASSWORD")
 	// sslmode := os.Getenv("DB_SSLMODE") // Optional: "disable", "require", etc.
+	host := os.Getenv("DB_HOST")
+	port := os.Getenv("DB_PORT")
+	database := os.Getenv("DB_DATABASE")
+	user := os.Getenv("DB_USERNAME")
+	password := os.Getenv("DB_PASSWORD")
+	sslmode := os.Getenv("DB_SSLMODE") // Optional: "disable", "require", etc.
 
 	// Set default sslmode if not provided
 	if sslmode == "" {
