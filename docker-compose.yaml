@@ -1,0 +1,6 @@
+services:
+  bpo-accounting:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: bpo-accounting
