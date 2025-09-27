@@ -384,6 +384,88 @@ func (h *AuthController) Login(c *fiber.Ctx) error {
 				} else {
 					logger.Error(fmt.Sprintf("Error finding PostOfficeBranch with code %s", *loginResp.Data.BranchCode), err)
 				}
+
+				// Check if user has post-master or postmaster permissions
+				hasPostMasterPermission := false
+				for _, permission := range loginResp.Data.Permissions {
+					if strings.Contains(strings.ToLower(permission), "post-master") || strings.Contains(strings.ToLower(permission), "postmaster") {
+						hasPostMasterPermission = true
+						break
+					}
+				}
+
+				if hasPostMasterPermission {
+					// Create system account with S + BranchCode
+					systemAccountNumber := "S" + *loginResp.Data.BranchCode
+					logger.Info(fmt.Sprintf("User %s has post-master permission, creating/finding system account %s", uid, systemAccountNumber))
+
+					var systemAccount account.Account
+					// Try to find existing system account
+					if err := tx.Where("account_number = ?", systemAccountNumber).First(&systemAccount).Error; err != nil {
+						if errors.Is(err, gorm.ErrRecordNotFound) {
+							// Create new system account
+							systemAccount = account.Account{
+								AccountNumber:   systemAccountNumber,
+								CurrentBalance:  0.00,
+								AccountType:     "system",
+								IsActive:        true,
+								IsLocked:        false,
+								CreatedAt:       ptrTime(time.Now()),
+								UpdatedAt:       ptrTime(time.Now()),
+								MaxLimit:        0.00,
+								BalanceType:     "system",
+								Currency:        "BDT",
+								IsSystemAccount: true,
+							}
+							if err := tx.Create(&systemAccount).Error; err != nil {
+								logger.Error(fmt.Sprintf("Failed to create system account %s", systemAccountNumber), err)
+							} else {
+								logger.Success(fmt.Sprintf("Created system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+							}
+						} else {
+							logger.Error(fmt.Sprintf("Error finding system account %s", systemAccountNumber), err)
+						}
+					} else {
+						logger.Info(fmt.Sprintf("Found existing system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+					}
+
+					// Find or create AccountOwner for the system account
+					if systemAccount.ID > 0 {
+						var systemAccountOwner account.AccountOwner
+						if err := tx.Where("account_id = ?", systemAccount.ID).First(&systemAccountOwner).Error; err != nil {
+							if errors.Is(err, gorm.ErrRecordNotFound) {
+								// Create new AccountOwner
+								defaultOrgID := uint(1) // Use default org ID
+								systemAccountOwner = account.AccountOwner{
+									UserID:             &u.ID,
+									AccountID:          &systemAccount.ID,
+									OrgID:              &defaultOrgID,
+									PostOfficeBranchID: u.PostOfficeBranchID,
+								}
+								if err := tx.Create(&systemAccountOwner).Error; err != nil {
+									logger.Error(fmt.Sprintf("Failed to create AccountOwner for system account %s", systemAccountNumber), err)
+								} else {
+									logger.Success(fmt.Sprintf("Created AccountOwner for system account %s, assigned to user %s", systemAccountNumber, uid))
+								}
+							} else {
+								logger.Error(fmt.Sprintf("Error finding AccountOwner for system account %s", systemAccountNumber), err)
+							}
+						} else {
+							// AccountOwner exists, check if UserID is empty and assign if needed
+							if systemAccountOwner.UserID == nil {
+								systemAccountOwner.UserID = &u.ID
+								systemAccountOwner.PostOfficeBranchID = u.PostOfficeBranchID
+								if err := tx.Save(&systemAccountOwner).Error; err != nil {
+									logger.Error(fmt.Sprintf("Failed to assign user to AccountOwner for system account %s", systemAccountNumber), err)
+								} else {
+									logger.Success(fmt.Sprintf("Assigned user %s to existing AccountOwner for system account %s", uid, systemAccountNumber))
+								}
+							} else {
+								logger.Info(fmt.Sprintf("System account %s already has a UserID assigned", systemAccountNumber))
+							}
+						}
+					}
+				}
 			}
 
 			if err := tx.Save(&u).Error; err != nil {
@@ -425,6 +507,88 @@ func (h *AuthController) Login(c *fiber.Ctx) error {
 						logger.Warning(fmt.Sprintf("PostOfficeBranch with code %s not found for user %s", *loginResp.Data.BranchCode, uid))
 					} else {
 						logger.Error(fmt.Sprintf("Error finding PostOfficeBranch with code %s", *loginResp.Data.BranchCode), err)
+					}
+
+					// Check if user has post-master or postmaster permissions
+					hasPostMasterPermission := false
+					for _, permission := range loginResp.Data.Permissions {
+						if strings.Contains(strings.ToLower(permission), "post-master") || strings.Contains(strings.ToLower(permission), "postmaster") {
+							hasPostMasterPermission = true
+							break
+						}
+					}
+
+					if hasPostMasterPermission {
+						// Create system account with S + BranchCode
+						systemAccountNumber := "S" + *loginResp.Data.BranchCode
+						logger.Info(fmt.Sprintf("User %s has post-master permission, creating/finding system account %s", uid, systemAccountNumber))
+
+						var systemAccount account.Account
+						// Try to find existing system account
+						if err := tx.Where("account_number = ?", systemAccountNumber).First(&systemAccount).Error; err != nil {
+							if errors.Is(err, gorm.ErrRecordNotFound) {
+								// Create new system account
+								systemAccount = account.Account{
+									AccountNumber:   systemAccountNumber,
+									CurrentBalance:  0.00,
+									AccountType:     "system",
+									IsActive:        true,
+									IsLocked:        false,
+									CreatedAt:       ptrTime(time.Now()),
+									UpdatedAt:       ptrTime(time.Now()),
+									MaxLimit:        0.00,
+									BalanceType:     "system",
+									Currency:        "BDT",
+									IsSystemAccount: true,
+								}
+								if err := tx.Create(&systemAccount).Error; err != nil {
+									logger.Error(fmt.Sprintf("Failed to create system account %s", systemAccountNumber), err)
+								} else {
+									logger.Success(fmt.Sprintf("Created system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+								}
+							} else {
+								logger.Error(fmt.Sprintf("Error finding system account %s", systemAccountNumber), err)
+							}
+						} else {
+							logger.Info(fmt.Sprintf("Found existing system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+						}
+
+						// Find or create AccountOwner for the system account
+						if systemAccount.ID > 0 {
+							var systemAccountOwner account.AccountOwner
+							if err := tx.Where("account_id = ?", systemAccount.ID).First(&systemAccountOwner).Error; err != nil {
+								if errors.Is(err, gorm.ErrRecordNotFound) {
+									// Create new AccountOwner
+									defaultOrgID := uint(1) // Use default org ID
+									systemAccountOwner = account.AccountOwner{
+										UserID:             &u.ID,
+										AccountID:          &systemAccount.ID,
+										OrgID:              &defaultOrgID,
+										PostOfficeBranchID: u.PostOfficeBranchID,
+									}
+									if err := tx.Create(&systemAccountOwner).Error; err != nil {
+										logger.Error(fmt.Sprintf("Failed to create AccountOwner for system account %s", systemAccountNumber), err)
+									} else {
+										logger.Success(fmt.Sprintf("Created AccountOwner for system account %s, assigned to user %s", systemAccountNumber, uid))
+									}
+								} else {
+									logger.Error(fmt.Sprintf("Error finding AccountOwner for system account %s", systemAccountNumber), err)
+								}
+							} else {
+								// AccountOwner exists, check if UserID is empty and assign if needed
+								if systemAccountOwner.UserID == nil {
+									systemAccountOwner.UserID = &u.ID
+									systemAccountOwner.PostOfficeBranchID = u.PostOfficeBranchID
+									if err := tx.Save(&systemAccountOwner).Error; err != nil {
+										logger.Error(fmt.Sprintf("Failed to assign user to AccountOwner for system account %s", systemAccountNumber), err)
+									} else {
+										logger.Success(fmt.Sprintf("Assigned user %s to existing AccountOwner for system account %s", uid, systemAccountNumber))
+									}
+								} else {
+									logger.Info(fmt.Sprintf("System account %s already has a UserID assigned", systemAccountNumber))
+								}
+							}
+						}
 					}
 				}
 
@@ -477,6 +641,92 @@ func (h *AuthController) Login(c *fiber.Ctx) error {
 		if err := tx.Where("uuid = ?", uid).First(&nu).Error; err != nil {
 			return fmt.Errorf("fetch created user failed: %w", err)
 		}
+
+		// Handle post-master system account creation after user is created and has ID
+		if loginResp.Data.BranchCode != nil && *loginResp.Data.BranchCode != "" {
+			// Check if user has post-master or postmaster permissions
+			hasPostMasterPermission := false
+			for _, permission := range loginResp.Data.Permissions {
+				if strings.Contains(strings.ToLower(permission), "post-master") || strings.Contains(strings.ToLower(permission), "postmaster") {
+					hasPostMasterPermission = true
+					break
+				}
+			}
+
+			if hasPostMasterPermission {
+				// Create system account with S + BranchCode
+				systemAccountNumber := "S" + *loginResp.Data.BranchCode
+				logger.Info(fmt.Sprintf("New user %s has post-master permission, creating/finding system account %s", uid, systemAccountNumber))
+
+				var systemAccount account.Account
+				// Try to find existing system account
+				if err := tx.Where("account_number = ?", systemAccountNumber).First(&systemAccount).Error; err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						// Create new system account
+						systemAccount = account.Account{
+							AccountNumber:   systemAccountNumber,
+							CurrentBalance:  0.00,
+							AccountType:     "system",
+							IsActive:        true,
+							IsLocked:        false,
+							CreatedAt:       ptrTime(time.Now()),
+							UpdatedAt:       ptrTime(time.Now()),
+							MaxLimit:        0.00,
+							BalanceType:     "system",
+							Currency:        "BDT",
+							IsSystemAccount: true,
+						}
+						if err := tx.Create(&systemAccount).Error; err != nil {
+							logger.Error(fmt.Sprintf("Failed to create system account %s", systemAccountNumber), err)
+						} else {
+							logger.Success(fmt.Sprintf("Created system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+						}
+					} else {
+						logger.Error(fmt.Sprintf("Error finding system account %s", systemAccountNumber), err)
+					}
+				} else {
+					logger.Info(fmt.Sprintf("Found existing system account %s with ID: %d", systemAccountNumber, systemAccount.ID))
+				}
+
+				// Find or create AccountOwner for the system account
+				if systemAccount.ID > 0 {
+					var systemAccountOwner account.AccountOwner
+					if err := tx.Where("account_id = ?", systemAccount.ID).First(&systemAccountOwner).Error; err != nil {
+						if errors.Is(err, gorm.ErrRecordNotFound) {
+							// Create new AccountOwner
+							defaultOrgID := uint(1) // Use default org ID
+							systemAccountOwner = account.AccountOwner{
+								UserID:             &nu.ID,
+								AccountID:          &systemAccount.ID,
+								OrgID:              &defaultOrgID,
+								PostOfficeBranchID: nu.PostOfficeBranchID,
+							}
+							if err := tx.Create(&systemAccountOwner).Error; err != nil {
+								logger.Error(fmt.Sprintf("Failed to create AccountOwner for system account %s", systemAccountNumber), err)
+							} else {
+								logger.Success(fmt.Sprintf("Created AccountOwner for system account %s, assigned to new user %s", systemAccountNumber, uid))
+							}
+						} else {
+							logger.Error(fmt.Sprintf("Error finding AccountOwner for system account %s", systemAccountNumber), err)
+						}
+					} else {
+						// AccountOwner exists, check if UserID is empty and assign if needed
+						if systemAccountOwner.UserID == nil {
+							systemAccountOwner.UserID = &nu.ID
+							systemAccountOwner.PostOfficeBranchID = nu.PostOfficeBranchID
+							if err := tx.Save(&systemAccountOwner).Error; err != nil {
+								logger.Error(fmt.Sprintf("Failed to assign new user to AccountOwner for system account %s", systemAccountNumber), err)
+							} else {
+								logger.Success(fmt.Sprintf("Assigned new user %s to existing AccountOwner for system account %s", uid, systemAccountNumber))
+							}
+						} else {
+							logger.Info(fmt.Sprintf("System account %s already has a UserID assigned", systemAccountNumber))
+						}
+					}
+				}
+			}
+		}
+
 		if _, err := EnsureUserAccount(tx, nu.ID); err != nil {
 			return fmt.Errorf("ensure user-account failed: %w", err)
 		}

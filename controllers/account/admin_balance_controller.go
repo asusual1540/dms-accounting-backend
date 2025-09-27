@@ -30,8 +30,7 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 	var request struct {
 		Reference     string  `json:"reference" validate:"required,min=3,max=255"`
 		Amount        float64 `json:"amount" validate:"required,gt=0,lte=1000000"`
-		AccountNumber string  `json:"account_number" validate:"required,len=19"`
-		RecipientID   uint    `json:"recipient_id" validate:"required,gt=0"`
+		AccountNumber string  `json:"account_number" validate:"required,min=5,max=19"`
 	}
 
 	if err := c.BodyParser(&request); err != nil {
@@ -44,11 +43,11 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 	}
 
 	// Validate required fields
-	if request.Reference == "" || request.Amount <= 0 || request.AccountNumber == "" || request.RecipientID == 0 {
+	if request.Reference == "" || request.Amount <= 0 || request.AccountNumber == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"status":      "failed",
 			"status_code": 400,
-			"message":     "All fields are required: reference, amount, account_number, recipient_id",
+			"message":     "All fields are required: reference, amount, account_number",
 			"data":        []interface{}{},
 		})
 	}
@@ -63,12 +62,12 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validate account number format (19 digits)
-	if len(request.AccountNumber) != 19 {
+	// Validate account number format (5-19 digits)
+	if len(request.AccountNumber) < 5 || len(request.AccountNumber) > 19 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"status":      "failed",
 			"status_code": 400,
-			"message":     "Invalid account number format. Must be 19 digits",
+			"message":     "Invalid account number format. Must be 5-19 digits",
 			"data":        []interface{}{},
 		})
 	}
@@ -111,15 +110,6 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 	var newLedger accountModel.AccountLedger
 
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
-		// Verify recipient exists
-		var recipient user.User
-		if err := tx.Where("id = ?", request.RecipientID).First(&recipient).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				return fiber.NewError(fiber.StatusNotFound, "Recipient user not found")
-			}
-			return err
-		}
-
 		// Find and lock the target account
 		var toAccount accountModel.Account
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -130,30 +120,44 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 			return err
 		}
 
-		// Check if account is active
+		// Auto-activate and unlock account if needed
 		if !toAccount.IsActive || toAccount.IsLocked {
-			return fiber.NewError(fiber.StatusBadRequest, "Account is not active or is locked")
+			toAccount.IsActive = true
+			toAccount.IsLocked = false
+			if err := tx.Save(&toAccount).Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Failed to activate/unlock account")
+			}
+		}
+
+		// Find the AccountOwner record for this account and set admin if not already set
+		var accountOwner accountModel.AccountOwner
+		if err := tx.Where("account_id = ?", toAccount.ID).First(&accountOwner).Error; err != nil {
+			if err != gorm.ErrRecordNotFound {
+				return fiber.NewError(fiber.StatusInternalServerError, "Failed to find account owner")
+			}
+			// If AccountOwner doesn't exist, this is unusual but we'll continue without setting admin
+			logger.Warning("AccountOwner record not found for account ID: " + request.AccountNumber)
+		} else {
+			// Check if admin is not already set for this account
+			if accountOwner.AdminID == nil {
+				// Set the current admin as the AdminID for this account
+				accountOwner.AdminID = &adminID
+				if err := tx.Save(&accountOwner).Error; err != nil {
+					return fiber.NewError(fiber.StatusInternalServerError, "Failed to set admin for account")
+				}
+				logger.Info("Admin assigned to account: " + request.AccountNumber)
+			}
 		}
 
 		// Check if reference already exists (duplicate prevention)
-		var existingLedger accountModel.AccountLedger
-		if err := tx.Where("reference = ? AND credit IS NOT NULL AND is_delete = 0", request.Reference).First(&existingLedger).Error; err == nil {
-			return fiber.NewError(fiber.StatusBadRequest, "Reference already exists for a credit transaction")
-		}
+		// var existingLedger accountModel.AccountLedger
+		// if err := tx.Where("reference = ? AND credit IS NOT NULL AND is_delete = 0", request.Reference).First(&existingLedger).Error; err == nil {
+		// 	return fiber.NewError(fiber.StatusBadRequest, "Reference already exists for a credit transaction")
+		// }
 
 		// Check account currency compatibility (assuming BDT for now)
 		if toAccount.Currency != "BDT" {
 			return fiber.NewError(fiber.StatusBadRequest, "Account currency must be BDT for balance addition")
-		}
-
-		// Verify that the recipient owns this account or is associated with it
-		var accountOwner accountModel.AccountOwner
-		if err := tx.Where("user_id = ? AND account_id = ?",
-			request.RecipientID, toAccount.ID).First(&accountOwner).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				return fiber.NewError(fiber.StatusBadRequest, "Account does not belong to the specified recipient")
-			}
-			return err
 		}
 
 		// Find or get the admin's account for proper double-entry bookkeeping
@@ -179,50 +183,50 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 
 		// Create debit ledger entry (money leaving admin account)
 		debitLedger := accountModel.AccountLedger{
-			BillID:         nil,
-			RecipientID:    adminID, // admin is the recipient of the debit record
-			SenderID:       adminID, // admin is initiating the transfer
-			OrganizationID: nil,
-			Reference:      request.Reference,
-			Debit:          &request.Amount, // debit from admin account
-			IsAutoVerified: true,
-			StatusActive:   1,
-			IsDelete:       0,
-			ToAccount:      &toAccount.ID,    // destination account (user's account)
-			FromAccount:    &adminAccount.ID, // source account (admin's account)
-			ApprovalStatus: 1,
-			ApprovedBy:     &adminID,
-			ApprovedAt:     ptrTime(time.Now()),
-			VerifiedBy:     &adminID,
-			VerifiedAt:     ptrTime(time.Now()),
-			CreatedAt:      time.Now(),
-			UpdatedAt:      ptrTime(time.Now()),
+			BillID:                    nil,
+			Reference:                 request.Reference,
+			Debit:                     &request.Amount,              // debit from admin account
+			FromAccountCurrentBalance: &adminAccount.CurrentBalance, // Store current balance before transaction
+			ToAccountCurrentBalance:   &toAccount.CurrentBalance,    // Store current balance before transaction
+			IsAutoVerified:            true,
+			StatusActive:              1,
+			IsDelete:                  0,
+			ToAccount:                 toAccount.ID,     // destination account
+			FromAccount:               &adminAccount.ID, // source account (admin's account)
+			ApprovalStatus:            1,
+			ApprovedBy:                &adminID,
+			ApprovedAt:                ptrTime(time.Now()),
+			VerifiedBy:                &adminID,
+			VerifiedAt:                ptrTime(time.Now()),
+			TransactionType:           "debit",
+			CreatedAt:                 time.Now(),
+			UpdatedAt:                 ptrTime(time.Now()),
 		}
 
 		if err := tx.Create(&debitLedger).Error; err != nil {
 			return err
 		}
 
-		// Create credit ledger entry (money entering user account)
+		// Create credit ledger entry (money entering account)
 		creditLedger := accountModel.AccountLedger{
-			BillID:         nil,
-			RecipientID:    request.RecipientID, // user receiving the credit
-			SenderID:       adminID,             // admin is sending the money
-			OrganizationID: nil,
-			Reference:      request.Reference,
-			Credit:         &request.Amount, // credit to user account
-			IsAutoVerified: true,
-			StatusActive:   1,
-			IsDelete:       0,
-			ToAccount:      &toAccount.ID,    // destination account (user's account)
-			FromAccount:    &adminAccount.ID, // source account (admin's account)
-			ApprovalStatus: 1,
-			ApprovedBy:     &adminID,
-			ApprovedAt:     ptrTime(time.Now()),
-			VerifiedBy:     &adminID,
-			VerifiedAt:     ptrTime(time.Now()),
-			CreatedAt:      time.Now(),
-			UpdatedAt:      ptrTime(time.Now()),
+			BillID:                    nil,
+			Reference:                 request.Reference,
+			Credit:                    &request.Amount,              // credit to account
+			FromAccountCurrentBalance: &adminAccount.CurrentBalance, // Store current balance before transaction
+			ToAccountCurrentBalance:   &toAccount.CurrentBalance,    // Store current balance before transaction
+			IsAutoVerified:            true,
+			StatusActive:              1,
+			IsDelete:                  0,
+			ToAccount:                 toAccount.ID,     // destination account
+			FromAccount:               &adminAccount.ID, // source account (admin's account)
+			ApprovalStatus:            1,
+			ApprovedBy:                &adminID,
+			ApprovedAt:                ptrTime(time.Now()),
+			VerifiedBy:                &adminID,
+			VerifiedAt:                ptrTime(time.Now()),
+			TransactionType:           "credit",
+			CreatedAt:                 time.Now(),
+			UpdatedAt:                 ptrTime(time.Now()),
 		}
 
 		if err := tx.Create(&creditLedger).Error; err != nil {
@@ -284,7 +288,6 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 		"amount":           request.Amount,
 		"reference":        request.Reference,
 		"account_number":   request.AccountNumber,
-		"recipient_id":     request.RecipientID,
 		"admin_id":         adminID,
 		"transaction_time": newLedger.CreatedAt,
 	}

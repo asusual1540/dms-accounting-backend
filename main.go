@@ -40,7 +40,7 @@ func main() {
 	// go logger.AsyncLogger(db)
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "http://192.168.1.76:3000",
+		AllowOrigins: "http://192.168.1.76:3000,http://192.168.1.18:3002",
 		// AllowOrigins:     os.Getenv("FRONTEND_URL") + os.Getenv("EKDAK_FRONTEND_URL"),
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",

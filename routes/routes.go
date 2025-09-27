@@ -172,6 +172,22 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 		constants.PermDMSAccountingoperatorFull,
 	), accountController.GetAccountLedgerList)
 
+	// PostPaid Bills List with pagination and filtering
+	accountingGroup.Get("/postpaid-bills", middleware.RequirePermissions(
+		constants.PermDMSAccountingDPMGFull,
+		constants.PermDMSAccountingPostmasterFull,
+	), accountController.GetPostPaidBillList)
+
+	// Operator-specific PostPaid Bills List (only bills where operator is sender)
+	accountingGroup.Get("/operator-postpaid-bills", middleware.RequirePermissions(
+		constants.PermDMSAccountingoperatorFull,
+	), accountController.GetOperatorPostPaidBillList)
+
+	// Mark PostPaid Bill as Sent by Operator
+	accountingGroup.Post("/mark-bill-sent", middleware.RequirePermissions(
+		constants.PermDMSAccountingoperatorFull,
+	), accountController.MarkBillAsSent)
+
 	/*accountingGroup.Get("/account-ledger/:id", middleware.RequirePermissions(
 		constants.PermDMSAccountingDPMGFull,
 		constants.PermDMSAccountingPostmasterFull,

@@ -123,6 +123,7 @@ func autoMigrate() error {
 	stage3Models := []interface{}{
 		&account.LedgerUpdateDocument{},
 		&account.PostPaidBill{},
+		&account.PostPaidBillEvent{},
 	}
 
 	for _, model := range stage3Models {

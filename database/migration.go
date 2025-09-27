@@ -96,6 +96,7 @@ func getRegisteredModels() []ModelInfo {
 		&account.AccountLedger{},
 		&account.LedgerUpdateDocument{},
 		&account.PostPaidBill{},
+		&account.PostPaidBillEvent{},
 
 		// Log models
 		&log.Log{},
@@ -591,15 +592,22 @@ func (dm *DynamicMigrator) analyzeTable(modelInfo ModelInfo) ([]MigrationOperati
 	// Detect new columns
 	for _, field := range modelInfo.Fields {
 		if _, exists := existingColMap[field.Name]; !exists {
-			op := MigrationOperation{
-				Type:        "add_column",
-				TableName:   modelInfo.TableName,
-				ColumnName:  field.Name,
-				NewField:    &field,
-				SQL:         dm.generateAddColumnSQL(modelInfo.TableName, field),
-				Description: fmt.Sprintf("Add column %s.%s", modelInfo.TableName, field.Name),
+			// Check if this is a NOT NULL column being added to an existing table
+			if field.NotNull && dm.tableHasData(modelInfo.TableName) {
+				// Split into multiple operations for NOT NULL columns on tables with data
+				operations = append(operations, dm.generateSafeAddColumnOperations(modelInfo.TableName, field)...)
+			} else {
+				// Safe to add normally
+				op := MigrationOperation{
+					Type:        "add_column",
+					TableName:   modelInfo.TableName,
+					ColumnName:  field.Name,
+					NewField:    &field,
+					SQL:         dm.generateAddColumnSQL(modelInfo.TableName, field),
+					Description: fmt.Sprintf("Add column %s.%s", modelInfo.TableName, field.Name),
+				}
+				operations = append(operations, op)
 			}
-			operations = append(operations, op)
 		}
 	}
 
@@ -1448,6 +1456,162 @@ func (dm *DynamicMigrator) generateModifyColumnSQL(tableName string, field Field
 	}
 
 	return fmt.Sprintf(`ALTER TABLE "%s" %s`, tableName, strings.Join(sqlParts, ", "))
+}
+
+// tableHasData checks if a table contains any rows
+func (dm *DynamicMigrator) tableHasData(tableName string) bool {
+	var count int64
+	if err := dm.db.Table(tableName).Count(&count).Error; err != nil {
+		// If we can't check, assume it has data to be safe
+		logger.Warning(fmt.Sprintf("Could not check row count for table %s: %v", tableName, err))
+		return true
+	}
+	return count > 0
+}
+
+// generateSafeAddColumnOperations creates multiple operations to safely add a NOT NULL column
+// to a table that already contains data
+func (dm *DynamicMigrator) generateSafeAddColumnOperations(tableName string, field FieldInfo) []MigrationOperation {
+	var operations []MigrationOperation
+
+	// Step 1: Add column as nullable first
+	nullableField := field
+	nullableField.NotNull = false
+
+	op1 := MigrationOperation{
+		Type:        "add_column",
+		TableName:   tableName,
+		ColumnName:  field.Name,
+		NewField:    &nullableField,
+		SQL:         dm.generateAddColumnSQL(tableName, nullableField),
+		Description: fmt.Sprintf("Add nullable column %s.%s", tableName, field.Name),
+	}
+	operations = append(operations, op1)
+
+	// Step 2: Handle default values specially for foreign key columns
+	var defaultValue interface{}
+	isForeignKeyColumn := field.ReferencedTable != "" || strings.HasSuffix(field.Name, "_id")
+
+	if field.Default != nil {
+		defaultValue = field.Default
+	} else if isForeignKeyColumn {
+		// For foreign key columns, try to find a valid reference
+		validRef := dm.getValidForeignKeyReference(field.ReferencedTable)
+		if validRef > 0 {
+			defaultValue = validRef
+		} else {
+			// If no valid reference found, let's try to use the first account ID from accounts table
+			// This is specifically for the post_paid_bills migration issue
+			if tableName == "post_paid_bills" && (strings.Contains(field.Name, "account_id")) {
+				validRef = dm.getValidForeignKeyReference("accounts")
+				if validRef > 0 {
+					defaultValue = validRef
+					// Also clean up any existing rows with invalid references
+					dm.cleanupInvalidForeignKeyReferences(tableName, field.Name, "accounts")
+				} else {
+					// If still no valid account, keep as nullable
+					logger.Warning(fmt.Sprintf("No valid account reference found for %s.%s, keeping as nullable", tableName, field.Name))
+					return operations
+				}
+			} else {
+				// For other foreign key columns, keep as nullable
+				logger.Warning(fmt.Sprintf("No valid foreign key reference found for %s.%s, keeping as nullable", tableName, field.Name))
+				return operations
+			}
+		}
+	} else {
+		// Provide sensible defaults based on field type for non-foreign key columns
+		switch {
+		case strings.Contains(field.Type, "varchar") || strings.Contains(field.Type, "text"):
+			defaultValue = ""
+		case strings.Contains(field.Type, "bigint") || strings.Contains(field.Type, "integer"):
+			defaultValue = 0
+		case strings.Contains(field.Type, "boolean"):
+			defaultValue = false
+		case strings.Contains(field.Type, "decimal") || strings.Contains(field.Type, "numeric"):
+			defaultValue = 0.0
+		case strings.Contains(field.Type, "timestamp"):
+			defaultValue = "CURRENT_TIMESTAMP"
+		default:
+			defaultValue = "NULL"
+		}
+	}
+
+	if defaultValue != "NULL" && defaultValue != nil {
+		formattedDefault := dm.formatDefaultValue(defaultValue, field.Type)
+		updateSQL := fmt.Sprintf(`UPDATE "%s" SET "%s" = %s WHERE "%s" IS NULL`, tableName, field.Name, formattedDefault, field.Name)
+
+		op2 := MigrationOperation{
+			Type:        "update_data",
+			TableName:   tableName,
+			ColumnName:  field.Name,
+			SQL:         updateSQL,
+			Description: fmt.Sprintf("Update existing rows in %s.%s with default value", tableName, field.Name),
+		}
+		operations = append(operations, op2)
+	}
+
+	// Step 3: Set column to NOT NULL only if we have valid data
+	setNotNullSQL := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" SET NOT NULL`, tableName, field.Name)
+
+	op3 := MigrationOperation{
+		Type:        "modify_column",
+		TableName:   tableName,
+		ColumnName:  field.Name,
+		NewField:    &field,
+		SQL:         setNotNullSQL,
+		Description: fmt.Sprintf("Set %s.%s to NOT NULL", tableName, field.Name),
+	}
+	operations = append(operations, op3)
+
+	// Step 4: Add default constraint if specified
+	if field.Default != nil {
+		defaultValue := dm.formatDefaultValue(field.Default, field.Type)
+		setDefaultSQL := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" SET DEFAULT %s`, tableName, field.Name, defaultValue)
+
+		op4 := MigrationOperation{
+			Type:        "modify_column",
+			TableName:   tableName,
+			ColumnName:  field.Name,
+			SQL:         setDefaultSQL,
+			Description: fmt.Sprintf("Set default value for %s.%s", tableName, field.Name),
+		}
+		operations = append(operations, op4)
+	}
+
+	return operations
+}
+
+// getValidForeignKeyReference tries to find a valid ID from the referenced table
+func (dm *DynamicMigrator) getValidForeignKeyReference(tableName string) uint {
+	if tableName == "" {
+		return 0
+	}
+
+	var id uint
+	// Try to get the first valid ID from the referenced table
+	if err := dm.db.Table(tableName).Select("id").Where("id > 0").Order("id ASC").Limit(1).Scan(&id).Error; err != nil {
+		logger.Warning(fmt.Sprintf("Could not find valid reference in table %s: %v", tableName, err))
+		return 0
+	}
+
+	return id
+}
+
+// cleanupInvalidForeignKeyReferences removes or fixes invalid foreign key references
+func (dm *DynamicMigrator) cleanupInvalidForeignKeyReferences(tableName, columnName, referencedTable string) {
+	// First, try to update rows with 0 or invalid references to use a valid reference
+	validRef := dm.getValidForeignKeyReference(referencedTable)
+	if validRef > 0 {
+		updateSQL := fmt.Sprintf(`UPDATE "%s" SET "%s" = %d WHERE "%s" = 0 OR "%s" IS NULL OR "%s" NOT IN (SELECT id FROM "%s")`,
+			tableName, columnName, validRef, columnName, columnName, columnName, referencedTable)
+
+		if err := dm.db.Exec(updateSQL).Error; err != nil {
+			logger.Warning(fmt.Sprintf("Could not cleanup invalid foreign key references in %s.%s: %v", tableName, columnName, err))
+		} else {
+			logger.Success(fmt.Sprintf("Cleaned up invalid foreign key references in %s.%s", tableName, columnName))
+		}
+	}
 }
 
 // RunDynamicMigration is a utility function to run dynamic migration from command line or manually

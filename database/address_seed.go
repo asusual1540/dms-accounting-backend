@@ -11,16 +11,87 @@ import (
 	"gorm.io/gorm"
 )
 
-// SeedAddressDataFromJSON creates complete address hierarchy data from JSON files
-func SeedAddressDataFromJSON(db *gorm.DB) error {
-	// Check if divisions already exist
+// checkDatabaseVsJSONCounts compares database record counts with JSON object counts
+func checkDatabaseVsJSONCounts(db *gorm.DB, jsonDataPath string) (bool, error) {
+	// Check divisions (hardcoded to 8 divisions)
 	var divisionCount int64
 	db.Model(&user.Division{}).Count(&divisionCount)
-	if divisionCount > 0 {
-		logger.Debug("Address data already exists, skipping...")
-		return nil
+	if divisionCount < 8 {
+		logger.Info(fmt.Sprintf("Database has %d divisions, expected 8. Proceeding with seeding...", divisionCount))
+		return false, nil
 	}
 
+	// Check districts from division.json
+	districtJSONCount, err := countJSONObjects(filepath.Join(jsonDataPath, "division.json"))
+	if err != nil {
+		return false, fmt.Errorf("failed to count districts in JSON: %w", err)
+	}
+	var districtCount int64
+	db.Model(&user.District{}).Count(&districtCount)
+	if int64(districtJSONCount) > districtCount {
+		logger.Info(fmt.Sprintf("Database has %d districts, JSON has %d. Proceeding with seeding...", districtCount, districtJSONCount))
+		return false, nil
+	}
+
+	// Check police stations from police_station.json
+	policeStationJSONCount, err := countJSONObjects(filepath.Join(jsonDataPath, "police_station.json"))
+	if err != nil {
+		return false, fmt.Errorf("failed to count police stations in JSON: %w", err)
+	}
+	var policeStationCount int64
+	db.Model(&user.PoliceStation{}).Count(&policeStationCount)
+	if int64(policeStationJSONCount) > policeStationCount {
+		logger.Info(fmt.Sprintf("Database has %d police stations, JSON has %d. Proceeding with seeding...", policeStationCount, policeStationJSONCount))
+		return false, nil
+	}
+
+	// Check post offices from post_office.json
+	postOfficeJSONCount, err := countJSONObjects(filepath.Join(jsonDataPath, "post_office.json"))
+	if err != nil {
+		return false, fmt.Errorf("failed to count post offices in JSON: %w", err)
+	}
+	var postOfficeCount int64
+	db.Model(&user.PostOffice{}).Count(&postOfficeCount)
+	if int64(postOfficeJSONCount) > postOfficeCount {
+		logger.Info(fmt.Sprintf("Database has %d post offices, JSON has %d. Proceeding with seeding...", postOfficeCount, postOfficeJSONCount))
+		return false, nil
+	}
+
+	// Check post office branches from post_office_branch.json
+	postOfficeBranchJSONCount, err := countJSONObjects(filepath.Join(jsonDataPath, "post_office_branch.json"))
+	if err != nil {
+		return false, fmt.Errorf("failed to count post office branches in JSON: %w", err)
+	}
+	var postOfficeBranchCount int64
+	db.Model(&user.PostOfficeBranch{}).Count(&postOfficeBranchCount)
+	if int64(postOfficeBranchJSONCount) > postOfficeBranchCount {
+		logger.Info(fmt.Sprintf("Database has %d post office branches, JSON has %d. Proceeding with seeding...", postOfficeBranchCount, postOfficeBranchJSONCount))
+		return false, nil
+	}
+
+	logger.Info("Database record counts match JSON object counts for all address data")
+	return true, nil
+}
+
+// countJSONObjects counts the number of objects in a JSON array file
+func countJSONObjects(filePath string) (int, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	var data []interface{}
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&data); err != nil {
+		return 0, err
+	}
+
+	return len(data), nil
+}
+
+// SeedAddressDataFromJSON creates complete address hierarchy data from JSON files
+func SeedAddressDataFromJSON(db *gorm.DB) error {
 	logger.Info("🌱 Starting to seed address data from JSON files...")
 
 	// Get the project root directory
@@ -31,6 +102,17 @@ func SeedAddressDataFromJSON(db *gorm.DB) error {
 	}
 
 	jsonDataPath := filepath.Join(projectRoot, "json_data")
+
+	// Check if database records match JSON object counts
+	shouldSkip, err := checkDatabaseVsJSONCounts(db, jsonDataPath)
+	if err != nil {
+		logger.Error("Failed to check database vs JSON counts", err)
+		return err
+	}
+	if shouldSkip {
+		logger.Debug("Database already has all JSON data, skipping...")
+		return nil
+	}
 
 	// Seed all address data in correct order
 	if err := seedDivisionsFromJSON(db, jsonDataPath); err != nil {
@@ -144,7 +226,7 @@ type AddressPostOfficeBranchJSON struct {
 }
 
 // seedDivisionsFromJSON creates divisions from the district mapping
-func seedDivisionsFromJSON(db *gorm.DB, jsonDataPath string) error {
+func seedDivisionsFromJSON(db *gorm.DB, _ string) error {
 	logger.Info("📍 Seeding divisions...")
 
 	// Create the 8 divisions of Bangladesh

@@ -180,10 +180,10 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 		}
 
 		// Check if reference already exists (duplicate prevention)
-		var existingLedger accountModel.AccountLedger
-		if err := tx.Where("reference = ? AND credit IS NOT NULL AND is_delete = 0", reference).First(&existingLedger).Error; err == nil {
-			return fiber.NewError(fiber.StatusBadRequest, "Reference already exists for a credit transaction")
-		}
+		// var existingLedger accountModel.AccountLedger
+		// if err := tx.Where("reference = ? AND credit IS NOT NULL AND is_delete = 0", reference).First(&existingLedger).Error; err == nil {
+		// 	return fiber.NewError(fiber.StatusBadRequest, "Reference already exists for a credit transaction")
+		// }
 
 		// Check account currency compatibility (assuming BDT for now)
 		if toAccount.Currency != "BDT" {
@@ -192,24 +192,24 @@ func (s *SelfCreditController) SelfCredit(c *fiber.Ctx) error {
 
 		// Create ledger entry for self-credit (no bill needed)
 		ledger := accountModel.AccountLedger{
-			BillID:         nil, // No bill for self credit
-			RecipientID:    userID,
-			SenderID:       userID, // self credit
-			OrganizationID: nil,    // No organization for self credit
-			Reference:      reference,
-			Credit:         &amountFloat,
-			IsAutoVerified: true,
-			StatusActive:   1,
-			IsDelete:       0,
-			ToAccount:      &toAccount.ID,
-			FromAccount:    &toAccount.ID,
-			ApprovalStatus: 1, // auto approved
-			ApprovedBy:     &userID,
-			ApprovedAt:     ptrTime(time.Now()),
-			VerifiedBy:     &userID,
-			VerifiedAt:     ptrTime(time.Now()),
-			CreatedAt:      time.Now(),
-			UpdatedAt:      ptrTime(time.Now()),
+			BillID:                    nil, // No bill for self credit
+			Reference:                 reference,
+			Credit:                    &amountFloat,
+			FromAccountCurrentBalance: &toAccount.CurrentBalance, // Store current balance before transaction
+			ToAccountCurrentBalance:   &toAccount.CurrentBalance, // Store current balance before transaction
+			IsAutoVerified:            true,
+			StatusActive:              1,
+			IsDelete:                  0,
+			ToAccount:                 toAccount.ID,
+			FromAccount:               &toAccount.ID,
+			ApprovalStatus:            1, // auto approved
+			ApprovedBy:                &userID,
+			ApprovedAt:                ptrTime(time.Now()),
+			VerifiedBy:                &userID,
+			VerifiedAt:                ptrTime(time.Now()),
+			TransactionType:           "credit",
+			CreatedAt:                 time.Now(),
+			UpdatedAt:                 ptrTime(time.Now()),
 		}
 
 		if err := tx.Create(&ledger).Error; err != nil {
