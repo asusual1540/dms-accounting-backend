@@ -1892,20 +1892,17 @@ func (a *AccountController) GetAccountLedgerList(c *fiber.Ctx) error {
 	for _, entry := range ledgerEntries {
 		// Calculate the amount (either credit or debit)
 		var amount float64
-		var transactionType string
 		if entry.Credit != nil && *entry.Credit > 0 {
 			amount = *entry.Credit
-			transactionType = "credit"
 		} else if entry.Debit != nil && *entry.Debit > 0 {
 			amount = *entry.Debit
-			transactionType = "debit"
 		}
 
 		entryData := fiber.Map{
 			"id":               entry.ID,
 			"amount":           amount,
 			"reference":        entry.Reference,
-			"transaction_type": transactionType,
+			"transaction_type": entry.TransactionType,
 			"created_at":       entry.CreatedAt,
 			"updated_at":       entry.UpdatedAt,
 		}
@@ -1978,15 +1975,14 @@ func (a *AccountController) GetAccountLedgerList(c *fiber.Ctx) error {
 
 		entryData["to_account"] = toAccountData
 
-		// Determine if this is a credit or debit from user's perspective
-		isCredit := false
-		for _, userAccountID := range accountIDs {
-			if entry.ToAccount == userAccountID {
-				isCredit = true
-				break
-			}
+		// Determine if this is a credit or debit based on which field has value
+		var entryType string
+		if entry.Credit != nil && *entry.Credit > 0 {
+			entryType = "credit"
+		} else if entry.Debit != nil && *entry.Debit > 0 {
+			entryType = "debit"
 		}
-		entryData["entry_type"] = map[bool]string{true: "credit", false: "debit"}[isCredit]
+		entryData["entry_type"] = entryType
 
 		responseData = append(responseData, entryData)
 	}
@@ -2028,29 +2024,25 @@ func (a *AccountController) GetSystemAccountByBranchCode(c *fiber.Ctx) error {
 	}
 	offset := (page - 1) * perPage
 
-	// --- If branch_code is provided, resolve matching branch IDs ---
+	// --- If branch_code is provided, resolve matching branch ID ---
 	var branchIDs []uint
 	if branchCode != "" {
-		var branches []user.PostOfficeBranch
+		var branch user.PostOfficeBranch
 		if err := a.db.
 			Where("branch_code = ?", branchCode).
-			Find(&branches).Error; err != nil {
-
+			First(&branch).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+					"status":  "error",
+					"message": "Branch not found",
+				})
+			}
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"status":  "error",
 				"message": "Database error (branches)",
 			})
 		}
-		if len(branches) == 0 {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"status":  "error",
-				"message": "Branch not found",
-			})
-		}
-		branchIDs = make([]uint, 0, len(branches))
-		for _, b := range branches {
-			branchIDs = append(branchIDs, b.ID)
-		}
+		branchIDs = []uint{branch.ID}
 	}
 
 	// --- Base query on AccountOwner with eager-loaded Account ---

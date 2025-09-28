@@ -181,18 +181,20 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 		//     return fiber.NewError(fiber.StatusBadRequest, "Admin account has insufficient balance")
 		// }
 
+		adminCurrentBalanceAfterTransaction := adminAccount.CurrentBalance - request.Amount
+
 		// Create debit ledger entry (money leaving admin account)
 		debitLedger := accountModel.AccountLedger{
 			BillID:                    nil,
 			Reference:                 request.Reference,
-			Debit:                     &request.Amount,              // debit from admin account
-			FromAccountCurrentBalance: &toAccount.CurrentBalance,    // Store current balance before transaction
-			ToAccountCurrentBalance:   &adminAccount.CurrentBalance, // Store current balance before transaction
+			Debit:                     &request.Amount,                      // debit from admin account
+			FromAccountCurrentBalance: &adminAccount.CurrentBalance,         // Store current balance before transaction
+			ToAccountCurrentBalance:   &adminCurrentBalanceAfterTransaction, // Store current balance before transaction
 			IsAutoVerified:            true,
 			StatusActive:              1,
 			IsDelete:                  0,
-			ToAccount:                 adminAccount.ID, // destination account
-			FromAccount:               &toAccount.ID,   // source account (admin's account)
+			ToAccount:                 adminAccount.ID,  // destination account
+			FromAccount:               &adminAccount.ID, // source account (admin's account)
 			ApprovalStatus:            1,
 			ApprovedBy:                &adminID,
 			ApprovedAt:                ptrTime(time.Now()),
@@ -207,13 +209,15 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 			return err
 		}
 
+		recipientCurrentBalanceAfterTransaction := toAccount.CurrentBalance + request.Amount
+
 		// Create credit ledger entry (money entering account)
 		creditLedger := accountModel.AccountLedger{
 			BillID:                    nil,
 			Reference:                 request.Reference,
-			Credit:                    &request.Amount,              // credit to account
-			FromAccountCurrentBalance: &adminAccount.CurrentBalance, // Store current balance before transaction
-			ToAccountCurrentBalance:   &toAccount.CurrentBalance,    // Store current balance before transaction
+			Credit:                    &request.Amount,                          // credit to account
+			FromAccountCurrentBalance: &toAccount.CurrentBalance,                // Store current balance before transaction
+			ToAccountCurrentBalance:   &recipientCurrentBalanceAfterTransaction, // Store current balance before transaction
 			IsAutoVerified:            true,
 			StatusActive:              1,
 			IsDelete:                  0,
