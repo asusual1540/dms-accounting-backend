@@ -186,19 +186,19 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 			BillID:                    nil,
 			Reference:                 request.Reference,
 			Debit:                     &request.Amount,              // debit from admin account
-			FromAccountCurrentBalance: &adminAccount.CurrentBalance, // Store current balance before transaction
-			ToAccountCurrentBalance:   &toAccount.CurrentBalance,    // Store current balance before transaction
+			FromAccountCurrentBalance: &toAccount.CurrentBalance,    // Store current balance before transaction
+			ToAccountCurrentBalance:   &adminAccount.CurrentBalance, // Store current balance before transaction
 			IsAutoVerified:            true,
 			StatusActive:              1,
 			IsDelete:                  0,
-			ToAccount:                 toAccount.ID,     // destination account
-			FromAccount:               &adminAccount.ID, // source account (admin's account)
+			ToAccount:                 adminAccount.ID, // destination account
+			FromAccount:               &toAccount.ID,   // source account (admin's account)
 			ApprovalStatus:            1,
 			ApprovedBy:                &adminID,
 			ApprovedAt:                ptrTime(time.Now()),
 			VerifiedBy:                &adminID,
 			VerifiedAt:                ptrTime(time.Now()),
-			TransactionType:           "debit",
+			TransactionType:           "transfer",
 			CreatedAt:                 time.Now(),
 			UpdatedAt:                 ptrTime(time.Now()),
 		}
@@ -224,7 +224,7 @@ func (a *AdminBalanceController) AddBalance(c *fiber.Ctx) error {
 			ApprovedAt:                ptrTime(time.Now()),
 			VerifiedBy:                &adminID,
 			VerifiedAt:                ptrTime(time.Now()),
-			TransactionType:           "credit",
+			TransactionType:           "transfer",
 			CreatedAt:                 time.Now(),
 			UpdatedAt:                 ptrTime(time.Now()),
 		}
